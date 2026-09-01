@@ -16,13 +16,16 @@ from __future__ import annotations
 import logging
 
 from google.adk.agents import LlmAgent
+from google.adk.models.google_llm import Gemini
 from google.adk.tools.mcp_tool.mcp_session_manager import (
     StdioConnectionParams,
     StdioServerParameters,
 )
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
+from google.genai import types
 
 from app.prompts import CONTINUITY_AGENT_INSTRUCTION
+from app.tools import agent_tools
 from app.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -74,6 +77,31 @@ def build_clickhouse_toolset(settings: Settings | None = None) -> McpToolset:
     )
 
 
+#: An investigation makes a lot of model calls in a short burst, which is
+#: exactly the shape a per-minute quota punishes. Without this, a run dies
+#: partway through with _ResourceExhaustedError and nothing recorded.
+#: 429 is the one that matters; the 5xx codes are cheap insurance.
+RETRY_STATUS_CODES = [429, 500, 502, 503, 504]
+RETRY_ATTEMPTS = 6
+RETRY_INITIAL_DELAY_S = 4.0
+RETRY_MAX_DELAY_S = 90.0
+
+
+def _model_with_retry(settings: Settings) -> Gemini:
+    """The model, configured to survive a rate limit instead of dying on one."""
+    return Gemini(
+        model=settings.model,
+        retry_options=types.HttpRetryOptions(
+            attempts=RETRY_ATTEMPTS,
+            initial_delay=RETRY_INITIAL_DELAY_S,
+            max_delay=RETRY_MAX_DELAY_S,
+            exp_base=2.0,
+            jitter=1.0,
+            http_status_codes=RETRY_STATUS_CODES,
+        ),
+    )
+
+
 def build_agent(
     settings: Settings | None = None,
     clickhouse_toolset: McpToolset | None = None,
@@ -87,15 +115,28 @@ def build_agent(
     """
     settings = settings or get_settings()
     logger.info("building %s on %s", AGENT_NAME, settings.model)
+    toolset = clickhouse_toolset or build_clickhouse_toolset(settings)
+    # record_finding writes through this same session, so the audit
+    # trail travels the MCP path like everything else.
+    agent_tools.set_clickhouse_toolset(toolset)
     return LlmAgent(
-        model=settings.model,
+        model=_model_with_retry(settings),
         name=AGENT_NAME,
         description=(
             "Finds physical continuity errors across takes, edit versions and "
             "CG shots by comparing observed frames against computed physics."
         ),
         instruction=CONTINUITY_AGENT_INSTRUCTION,
-        tools=[clickhouse_toolset or build_clickhouse_toolset(settings)],
+        tools=[
+            toolset,
+            # Physics, vision and the write-back. Each one does something the
+            # agent cannot do by reasoning; the choosing stays with the agent.
+            agent_tools.compute_light_rig,
+            agent_tools.compute_render_error,
+            agent_tools.find_pickup_windows,
+            agent_tools.adjudicate_cut,
+            agent_tools.record_finding,
+        ],
     )
 
 

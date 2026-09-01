@@ -242,3 +242,125 @@ def observe_frame(
     observations = json.loads(response.text).get("observations", [])
     logger.info("observed %d attributes", len(observations))
     return observations
+
+
+ADJUDICATION_SCHEMA: dict[str, Any] = {
+    "type": "OBJECT",
+    "properties": {
+        "would_an_audience_notice": {"type": "BOOLEAN"},
+        "severity": {"type": "STRING", "enum": ["info", "low", "medium", "high"]},
+        "what_differs": {
+            "type": "STRING",
+            "description": "one sentence, describing only what is visibly different",
+        },
+        "why_it_reads_or_does_not": {
+            "type": "STRING",
+            "description": "one sentence on shot size, focus, and where the eye goes",
+        },
+        "confidence": {"type": "NUMBER"},
+    },
+    "required": [
+        "would_an_audience_notice",
+        "severity",
+        "what_differs",
+        "why_it_reads_or_does_not",
+        "confidence",
+    ],
+}
+
+ADJUDICATE_PROMPT = """
+These two frames are cut directly against each other. The first is the outgoing
+shot, the second is the incoming one.
+
+The data already says they disagree about {entity} / {attribute}: {delta}.
+The physics says: {expectation}
+
+Your job is not to re-measure. It is to answer one question a database cannot:
+**would an audience notice, at speed, in this cut?**
+
+Weigh what actually governs that:
+
+- Shot size. The same discrepancy is glaring in a wide and invisible in a
+  close-up where the subject fills the frame.
+- Where the eye goes. A mismatch behind the speaking actor's head is not seen.
+- Focus. A difference in a defocused background is not a continuity error.
+- Duration. Something on screen for twelve frames is not read.
+
+Say "no" freely. Most measured differences are not visible ones, and a tool
+that flags everything gets switched off. Reserve 'high' for something that
+would pull a viewer out of the scene.
+""".strip()
+
+
+def adjudicate_pair_by_uri(
+    frame_a_uri: str,
+    frame_b_uri: str,
+    *,
+    entity: str,
+    attribute: str,
+    delta: str,
+    expectation: str,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    """Adjudicate two frames Gemini reads straight from GCS.
+
+    The agent only ever holds URIs — they are what `frame_observations` stores
+    — so pulling the bytes down just to send them back up would be wasted
+    round trips.
+    """
+    settings = settings or get_settings()
+    prompt = ADJUDICATE_PROMPT.format(
+        entity=entity, attribute=attribute, delta=delta, expectation=expectation
+    )
+    response = _models(settings).generate_content(
+        model=settings.model,
+        contents=[
+            types.Part.from_uri(file_uri=frame_a_uri, mime_type="image/jpeg"),
+            types.Part.from_uri(file_uri=frame_b_uri, mime_type="image/jpeg"),
+            prompt,
+        ],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=ADJUDICATION_SCHEMA,
+            temperature=0.0,
+        ),
+    )
+    return json.loads(response.text)
+
+
+def adjudicate_pair(
+    frame_a: bytes,
+    frame_b: bytes,
+    *,
+    entity: str,
+    attribute: str,
+    delta: str,
+    expectation: str,
+    mime_type: str = "image/jpeg",
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    """Judge whether a measured difference is a visible one.
+
+    The expensive half of the perception pass, and the reason the database
+    comes first: this runs on the handful of contradictions that survived
+    ranking, not on every pair. Two frames go in together, because the question
+    is about the cut rather than about either frame alone.
+    """
+    settings = settings or get_settings()
+    prompt = ADJUDICATE_PROMPT.format(
+        entity=entity, attribute=attribute, delta=delta, expectation=expectation
+    )
+    response = _models(settings).generate_content(
+        model=settings.model,
+        contents=[
+            _image_part(frame_a, mime_type),
+            _image_part(frame_b, mime_type),
+            prompt,
+        ],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=ADJUDICATION_SCHEMA,
+            temperature=0.0,
+        ),
+    )
+    return json.loads(response.text)

@@ -50,6 +50,7 @@
       "id": "E4",
       "type": "physics_mismatch",
       "shot_id": "sc14_cg01",
+      "take_id": "sc14_su08_t01",
       "detail": "CG key light is 14.2 deg off in azimuth and 740 K too cool for the master it cuts against",
       "correct_key_light_azimuth_deg": 240.41,
       "correct_key_light_elevation_deg": 25.08,
@@ -61,6 +62,7 @@
       "id": "E5",
       "type": "asset_version_drift",
       "shot_id": "sc14_cg01",
+      "take_id": "sc14_su08_t01",
       "detail": "beach_headland moved v012 -> v013 between render versions while the rest of the scene still references v012",
       "core_hours_at_risk": 2110.0
     }

@@ -320,6 +320,10 @@ def build_render_configs() -> tuple[list[dict], list[dict]]:
             "id": "E4",
             "type": "physics_mismatch",
             "shot_id": f"{SCENE_ID}_cg01",
+            # The take as well as the shot: an analyst naturally refers to the
+            # take it was rendered for, and a scorer that only knows the shot id
+            # would mark a correct find as a miss.
+            "take_id": cg_take,
             "detail": (
                 "CG key light is 14.2 deg off in azimuth and 740 K too cool for the "
                 "master it cuts against"
@@ -336,6 +340,7 @@ def build_render_configs() -> tuple[list[dict], list[dict]]:
             "id": "E5",
             "type": "asset_version_drift",
             "shot_id": f"{SCENE_ID}_cg01",
+            "take_id": cg_take,
             "detail": (
                 "beach_headland moved v012 -> v013 between render versions while "
                 "the rest of the scene still references v012"

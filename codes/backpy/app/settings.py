@@ -117,7 +117,11 @@ class Settings:
             "CLICKHOUSE_PASSWORD": self.agent_password or self.clickhouse_password,
             "CLICKHOUSE_SECURE": self.clickhouse_secure,
             "CLICKHOUSE_DATABASE": self.clickhouse_database,
-            "CLICKHOUSE_ALLOW_WRITE_ACCESS": "1" if self.agent_user else "0",
+            # mcp-clickhouse compares this against the literal string "true"
+            # (`os.getenv(...).lower() == "true"`). "1" reads as false, and the
+            # symptom is every INSERT coming back as "Cannot execute query in
+            # readonly mode" with nothing else to suggest a config problem.
+            "CLICKHOUSE_ALLOW_WRITE_ACCESS": "true" if self.agent_user else "false",
         }
 
     @property

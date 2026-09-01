@@ -10,6 +10,7 @@ before a judge does.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
@@ -26,6 +27,13 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger("cinemeridian")
 
 APP_NAME = "cinemeridian"
+
+#: The scene the demo analyses. One production, one location — hard-coded here
+#: because it is demo scaffolding rather than configuration, and pretending
+#: otherwise would add a settings knob nobody turns.
+PRODUCTION_ID = "prod_tideline"
+SCENE_LATITUDE = 8.75
+SCENE_LONGITUDE = -83.5
 
 
 @asynccontextmanager
@@ -162,6 +170,130 @@ async def ask(request: AskRequest) -> AskResponse:
         tool_calls=calls,
         elapsed_ms=int((time.perf_counter() - started) * 1000),
     )
+
+
+class AnalyzeRequest(BaseModel):
+    edit_version: str = Field(default="v14", max_length=32)
+    scene_id: str = Field(default="sc14", max_length=32)
+
+
+@app.post("/api/analyze")
+async def analyze(request: AnalyzeRequest):
+    """Review an edit version, streaming the agent's reasoning as it goes.
+
+    Streamed rather than returned in one piece because the interesting part is
+    not the verdict — it is watching the agent narrow three hundred measured
+    contradictions down to the few worth an editor's attention, and say why.
+    A console that only showed the final list would hide the actual work.
+    """
+    from sse_starlette.sse import EventSourceResponse
+
+    from app.prompts import ANALYSIS_TASK
+
+    task = ANALYSIS_TASK.format(
+        edit_version=request.edit_version,
+        scene_id=request.scene_id,
+        production_id=PRODUCTION_ID,
+        latitude=SCENE_LATITUDE,
+        longitude=SCENE_LONGITUDE,
+    )
+
+    async def events():
+        from google.adk.runners import InMemoryRunner
+        from google.genai import types
+
+        runner: InMemoryRunner = app.state.runner or InMemoryRunner(
+            agent=app.state.agent, app_name=APP_NAME
+        )
+        app.state.runner = runner
+
+        user_id = f"analyze-{uuid.uuid4().hex[:8]}"
+        session = await runner.session_service.create_session(
+            app_name=APP_NAME, user_id=user_id
+        )
+        started = time.perf_counter()
+
+        yield {
+            "event": "started",
+            "data": json.dumps(
+                {"edit_version": request.edit_version, "scene_id": request.scene_id}
+            ),
+        }
+
+        try:
+            async for event in runner.run_async(
+                user_id=user_id,
+                session_id=session.id,
+                new_message=types.Content(role="user", parts=[types.Part(text=task)]),
+            ):
+                for call in event.get_function_calls() or []:
+                    yield {
+                        "event": "tool_call",
+                        "data": json.dumps(
+                            {
+                                "name": call.name,
+                                "args": {
+                                    key: str(value)[:2000]
+                                    for key, value in (call.args or {}).items()
+                                },
+                                "elapsed_ms": int((time.perf_counter() - started) * 1000),
+                            }
+                        ),
+                    }
+                for response in event.get_function_responses() or []:
+                    yield {
+                        "event": "tool_result",
+                        "data": json.dumps(
+                            {
+                                "name": response.name,
+                                "result": str(response.response)[:4000],
+                                "elapsed_ms": int((time.perf_counter() - started) * 1000),
+                            }
+                        ),
+                    }
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.text:
+                            yield {
+                                "event": "reasoning",
+                                "data": json.dumps({"text": part.text}),
+                            }
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("analysis failed")
+            yield {"event": "error", "data": json.dumps({"detail": str(exc)})}
+            return
+
+        yield {
+            "event": "done",
+            "data": json.dumps({"elapsed_ms": int((time.perf_counter() - started) * 1000)}),
+        }
+
+    return EventSourceResponse(events())
+
+
+@app.get("/api/findings")
+async def findings(edit_version: str = "v14", scene_id: str = "sc14") -> dict[str, Any]:
+    """What the agent recorded, for the review queue.
+
+    Read through the same MCP tool the agent uses, so there is exactly one path
+    to ClickHouse in this service and no second one to keep honest.
+    """
+    toolset = app.state.clickhouse_toolset
+    tools = {tool.name: tool for tool in await toolset.get_tools()}
+    query_tool = tools.get("run_query")
+    if query_tool is None:
+        raise HTTPException(status_code=503, detail="run_query unavailable over MCP")
+
+    sql = (
+        "SELECT finding_id, created_at, finding_type, severity, take_a, take_b, "
+        "entity, attribute, observed_delta, computed_expectation, gemini_verdict, "
+        "recommendation, visible_in_cut, human_reviewed "
+        f"FROM cinemeridian.continuity_findings "
+        f"WHERE edit_version = '{edit_version}' AND scene_id = '{scene_id}' "
+        "ORDER BY severity DESC, created_at DESC FORMAT JSONEachRow"
+    )
+    result = await query_tool.run_async(args={"query": sql}, tool_context=None)
+    return {"edit_version": edit_version, "scene_id": scene_id, "result": result}
 
 
 @app.exception_handler(ConfigError)

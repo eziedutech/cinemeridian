@@ -1,73 +1,43 @@
 # CineMeridian
 
-**Continuity intelligence for the shoot and the cut.**
+> A continuity analyst for film production, where a Gemini agent checks a cut against the physics of the day it was shot.
 
-A Gemini agent that guards a film's *physical* continuity — shadow direction and
-length, colour temperature, wind, breath vapour, accumulating footprints, cloud,
-tide — across takes, across edit versions, and across CG shots.
+![license MIT](https://img.shields.io/badge/license-MIT-green)
+![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB)
+![Google ADK](https://img.shields.io/badge/Google-ADK%202.8-4285F4)
+![ClickHouse](https://img.shields.io/badge/ClickHouse-via%20MCP-FFCC01)
+![Remix](https://img.shields.io/badge/Remix-2.15-000000)
+
+[Live console](https://cinemeridian-console-wswiws457a-uc.a.run.app) and
+[MCP health check](https://cinemeridian-api-wswiws457a-uc.a.run.app/api/health/mcp)
 
 Built for **Agentic Cinema: The Blockbuster Hackathon**, ClickHouse track.
 
-**Live:** [continuity console](https://cinemeridian-console-wswiws457a-uc.a.run.app) ·
-[API](https://cinemeridian-api-wswiws457a-uc.a.run.app/api/health)
+## Table of Contents
 
-No login. Both services run on Cloud Run in `us-central1`. The one endpoint
-worth checking first is
-[`/api/health/mcp`](https://cinemeridian-api-wswiws457a-uc.a.run.app/api/health/mcp):
-it starts the `mcp-clickhouse` server inside the deployed container and reports
-whether the agent can actually reach ClickHouse through it. A ClickHouse Cloud
-service sleeps when idle, so the first request after a quiet spell can take the
-better part of a minute.
+- [What it is](#what-it-is)
+- [How to test](#how-to-test)
+- [Agent tools and MCP](#agent-tools-and-mcp)
+- [Architecture](#architecture)
+- [Running locally](#running-locally)
+- [Deployment](#deployment)
+- [Configuration](#configuration)
+- [What is real and what is simulated](#what-is-real-and-what-is-simulated)
+- [Results](#results)
+- [Credits and licenses](#credits-and-licenses)
+- [How this was built](#how-this-was-built)
+- [License](#license)
 
----
+## What it is
 
-## Where things are
-
-`git init` runs at the root of the working folder, so the repository root is also
-the project root. Application code sits under `codes/` rather than at the top
-level; `LICENSE` stays at the root because that is what the rules require and
-what GitHub reads for the licence badge.
-
-```
-LICENSE                      MIT
-README.md                    this file
-.env.example                 configuration template
-sql/
-  001_schema.sql             the seven ClickHouse tables
-  010_queries.sql            the tested queries, with the reasoning behind them
-scripts/
-  generate_telemetry.py      simulated environment data (ephemeris + weather)
-  generate_production.py     the scene: takes, edits, render configs, answer key
-  make_plates.py             base plates, from Gemini image models
-  composite_variants.py      the controlled variables, composited exactly
-  observe_frames.py          the perception pass
-  apply_schema.py            create the schema (setup only)
-  create_agent_user.py       the restricted user the agent runs as (setup only)
-  load_data.py               load the CSVs (setup only)
-  verify_mcp.py              prove ClickHouse is reached through MCP
-  run_analysis.py            drive one investigation from the command line
-  score_findings.py          score findings against the planted errors
-codes/
-  backpy/                    FastAPI + Google ADK agent
-    app/
-      agent.py               the agent, and its mcp-clickhouse toolset
-      ephemeris.py           sun/moon/tide maths - pure, no dependencies
-      prompts.py             the instruction, and the analysis task
-      settings.py            configuration from the environment
-      tools/
-        vision.py            observe_frame(), adjudicate_pair()
-        prescribe.py         light rig and match windows
-        audit.py             the finding record
-        agent_tools.py       what the agent is actually handed
-    tests/
-  frontremix/                Remix continuity console
-assets/                      synthetic plates and frames
-```
-
-## The problem
+A film scene is shot out of order, over days or weeks, and then assembled. While
+that happens the sun moves, the wind turns, the tide comes in, and footprints
+accumulate in the sand. None of it is written down, because nobody can write it
+down. Then an editor cuts two takes together and something is subtly wrong in a
+way the audience feels and cannot name.
 
 People are excellent at comparing one pair of shots. Five things defeat them,
-and none of them is about eyesight:
+and not one is about eyesight:
 
 - **Combinatorial explosion.** Ten setups by eight takes, and the error only
   matters for the pairs that end up *adjacent in the cut* — which changes every
@@ -85,7 +55,108 @@ those fail — because the real problem is combinatorial. CineMeridian uses visi
 only to **turn pixels into facts**, and hands the actual work to an analytical
 database.
 
-## How it works
+Two ideas hold it together.
+
+**Physics is the ground truth.** Sun and moon position follow deterministically
+from (latitude, longitude, timestamp), so there is a correct answer nobody has
+to be asked for. A useful side effect: a mis-slated take exposes itself, because
+its shadows do not match the ephemeris for the time written on the slate.
+
+**One calculation, read two ways.** For a practical shot, solve for *when* — the
+window in which conditions will match again, for pickups and reshoots. For a CG
+shot, solve for *how much* — the key-light azimuth, elevation and colour
+temperature that will match the plate. Same arithmetic, opposite direction.
+
+The agent **only ever recommends.** It does not modify an edit, submit a render,
+or mark its own findings reviewed. Every finding lands in a queue for a human.
+
+## How to test
+
+No login is needed for anything below.
+
+1. Open the **[live console](https://cinemeridian-console-wswiws457a-uc.a.run.app)**.
+   It lists what the agent found in cut v14 of the demo scene. Click a finding to
+   see the two frames it is about, side by side.
+2. Press **Analyse v14** and watch the timeline on the right. That panel is the
+   honest half of the demo: the queries the agent wrote, the candidates it
+   dismissed, and the one adjudication it chose to spend. An investigation takes
+   around three minutes.
+3. Switch to **cut v13** and compare. The footage is identical in both; only the
+   order changed. Most findings disappear, which is the argument for recomputing
+   on every edit version rather than once at ingest.
+4. Check
+   **[`/api/health/mcp`](https://cinemeridian-api-wswiws457a-uc.a.run.app/api/health/mcp)**.
+   It starts the `mcp-clickhouse` server inside the deployed container and
+   reports whether the agent can actually reach ClickHouse through it.
+
+A ClickHouse Cloud service sleeps when idle, so the first request after a quiet
+spell can take the better part of a minute. It is waking, not broken.
+
+## Agent tools and MCP
+
+Every runtime query reaches ClickHouse through the **`mcp-clickhouse`** MCP
+server, launched as a stdio subprocess and attached to the ADK agent as a
+toolset — never through a database client in application code. Reads and the
+finding write-back both travel that path.
+
+The wiring is in [`codes/backpy/app/agent.py`](codes/backpy/app/agent.py); the
+health endpoint that proves it works in the deployed container is
+[`/api/health/mcp`](codes/backpy/app/main.py).
+
+| Tool | Source | What it does |
+|---|---|---|
+| `run_query`, `list_tables`, `list_databases` | mcp-clickhouse | every read, and the finding INSERT |
+| `compute_light_rig` | `tools/prescribe.py` | key light values a CG shot needs to match a practical take |
+| `compute_render_error` | `tools/prescribe.py` | how far a submitted render sits from that, handling the 360° wrap |
+| `find_pickup_windows` | `tools/prescribe.py` | when the sun returns to a take's geometry |
+| `adjudicate_cut` | `tools/vision.py` | two frames at once: would an audience notice, at speed |
+| `record_finding` | `tools/audit.py` | writes one finding for human review, through the same MCP session |
+
+The scripts in [`scripts/`](scripts) do talk to ClickHouse over HTTPS, but they
+are setup tooling that runs before the agent exists — schema, data load, the
+restricted user — and are not part of the running system.
+
+**The agent cannot break anything.** `mcp-clickhouse` is read-only unless write
+access is enabled, and that flag is all-or-nothing: with it set, anything the
+model puts in a query reaches the server, `DROP TABLE` included. So the boundary
+is a grant rather than a flag. The agent connects as a ClickHouse user with
+`SELECT` across the database and `INSERT` into `continuity_findings` alone —
+verified by attempting the things it should refuse. Setup scripts use the admin
+user, which never has a model attached to it.
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  frontremix — Remix console (Cloud Run)                      │
+│  findings map · evidence pair · agent timeline over SSE      │
+└───────────────────────────┬──────────────────────────────────┘
+                            │ REST + SSE
+┌───────────────────────────▼──────────────────────────────────┐
+│  backpy — FastAPI + Google ADK (Cloud Run)                   │
+│                                                              │
+│   cinemeridian_continuity_agent  ·  Gemini 2.5 Flash         │
+│     MCPToolset ─────────────────────────────► mcp-clickhouse │
+│     observe_frame / adjudicate_cut ──────────► Vertex AI     │
+│     compute_light_rig / find_pickup_windows ─► ephemeris.py  │
+│     record_finding ──────────────────────────► mcp-clickhouse│
+│                                                              │
+│   ephemeris.py — sun, moon, tide. Pure maths, no deps.       │
+└──────────┬────────────────────────────────┬──────────────────┘
+           │ MCP (stdio)                    │ Vertex AI
+┌──────────▼─────────────┐   ┌──────────────▼──────────────────┐
+│  ClickHouse Cloud      │   │  Gemini 2.5 Flash               │
+│  7 tables              │   │  perception + adjudication      │
+└────────────────────────┘   └─────────────────────────────────┘
+                             ┌─────────────────────────────────┐
+                             │  GCS — synthetic frames         │
+                             └─────────────────────────────────┘
+```
+
+The pipeline runs in two lanes. The **slow lane** — perception into relational —
+runs once at ingest, standing in for the overnight pass after a shoot day. The
+**fast lane** — hunting contradictions — runs every time the edit changes, and
+is the only one that has to be quick.
 
 ```
 Gemini vision  ──►  structured observations  ──►  ClickHouse (via MCP)
@@ -102,52 +173,58 @@ computed physics ─────────────────────
                                         recommendations, for human review
 ```
 
-Two facts hold this together:
+Seven ClickHouse tables ([`sql/001_schema.sql`](sql/001_schema.sql)). The
+`ORDER BY` keys are the design, not decoration: the self-join of observations of
+the same story beat across different takes and the range scan over precomputed
+ephemeris each read a contiguous range. The queries the agent starts from, with
+the reasoning behind each, are in
+[`sql/010_queries.sql`](sql/010_queries.sql).
 
-**Physics is the ground truth.** Sun and moon position follow deterministically
-from (latitude, longitude, timestamp), so there is a correct answer that nobody
-has to be asked for. A useful side effect: a mis-slated take exposes itself,
-because its shadows do not match the ephemeris for the time written on the slate.
+**Repository layout.** `git init` runs at the root of the working folder, so the
+repository root is the project root. Application code sits under `codes/` rather
+than at the top level; `LICENSE` stays at the root because that is what the
+rules require and what GitHub reads for the licence badge.
 
-**One calculation, read two ways.** For a practical shot, solve for *when* —
-the window in which conditions will match again, for pickups and reshoots. For a
-CG shot, solve for *how much* — the key-light azimuth, elevation and colour
-temperature that will match. Same arithmetic, opposite direction.
+```
+sql/
+  001_schema.sql             the seven ClickHouse tables
+  010_queries.sql            the tested queries, with their reasoning
+scripts/
+  generate_telemetry.py      simulated environment data (ephemeris + weather)
+  generate_production.py     the scene: takes, edits, render configs, answer key
+  make_plates.py             base plates, from Gemini image models
+  composite_variants.py      the controlled variables, composited exactly
+  observe_frames.py          the perception pass
+  apply_schema.py            create the schema (setup only)
+  create_agent_user.py       the restricted user the agent runs as (setup only)
+  load_data.py               load the CSVs (setup only)
+  verify_mcp.py              prove ClickHouse is reached through MCP
+  run_analysis.py            drive one investigation from the command line
+  score_findings.py          score findings against the planted errors
+codes/
+  backpy/                    FastAPI + Google ADK agent
+    app/
+      agent.py               the agent, and its mcp-clickhouse toolset
+      ephemeris.py           sun/moon/tide maths — pure, no dependencies
+      prompts.py             the instruction, and the analysis task
+      settings.py            configuration from the environment
+      tools/                 vision, prescribe, audit, agent_tools
+    tests/
+  frontremix/                Remix continuity console
+assets/                      synthetic plates, and the answer key
+```
 
-The agent **only ever recommends.** It does not modify an edit or submit a render
-job. Every finding lands in a queue for human review.
+## Running locally
 
-## ClickHouse, through MCP
-
-Every runtime query reaches ClickHouse through the `mcp-clickhouse` MCP server,
-launched as a stdio subprocess and attached to the ADK agent as a toolset — not
-through a database client in application code. The schema is seven tables
-(`sql/001_schema.sql`); the `ORDER BY` keys are chosen so that the hot queries —
-a self-join of observations of the same story beat across different takes, and a
-range scan over precomputed ephemeris — each read a contiguous range.
-
-## Honesty about the data
-
-- All footage is **synthetic and self-made**. No real film or broadcast material
-  is used anywhere.
-- There is no real production data and no real crew.
-- Sun and moon positions are real astronomy (NOAA solar position algorithm).
-  **Tide is simulated** — two harmonic constituents against an arbitrary epoch.
-  Weather telemetry is simulated too. Neither is a prediction for any real place,
-  and nothing in the demo presents them as one.
-
-## Running it
-
-Requires Python 3.12+, `uv`, a Google Cloud project with Vertex AI enabled, and a
-ClickHouse Cloud service in the same region (`us-central1`).
+Requires Python 3.12+, `uv`, Node 20+, a Google Cloud project with Vertex AI
+enabled, and a ClickHouse Cloud service in the same region (`us-central1`).
 
 ```bash
-cp .env.example credentials/gcp.env    # then fill in, both files are gitignored
 python -m pip install -r codes/backpy/requirements-dev.txt
 ```
 
-Create the schema, then generate and load the simulated production data.
-All three are **setup only** — runtime access goes through MCP:
+Create the schema, the restricted agent user, and the simulated production.
+All of this is **setup only** — runtime access goes through MCP:
 
 ```bash
 python scripts/apply_schema.py
@@ -157,18 +234,14 @@ python scripts/generate_production.py --out data/
 python scripts/load_data.py --data data/
 ```
 
-Then check that the part the track actually requires works:
+Check the part the track actually requires:
 
 ```bash
 python scripts/verify_mcp.py
 ```
 
-A ClickHouse Cloud service sleeps when idle, and the first request after that
-can take most of a minute. Warm it with `python scripts/apply_schema.py --check`
-before a demo.
-
 Render the frames and run the perception pass. This is the slow lane — one
-Gemini call per frame, writing observations that the queries then work on:
+Gemini call per frame, writing the observations the queries then work on:
 
 ```bash
 python scripts/make_plates.py --setup su01 --candidates 3
@@ -178,20 +251,20 @@ python scripts/observe_frames.py --frames assets/frames --out data/ --upload
 python scripts/load_data.py --data data/
 ```
 
-Then run an analysis and score it against the planted errors:
+Run an investigation, then score it against the planted errors:
 
 ```bash
 python scripts/run_analysis.py --edit-version v14
 python scripts/score_findings.py --edit-version v14
 ```
 
-Run the tests:
+Tests:
 
 ```bash
 python -m pytest codes/backpy
 ```
 
-Both services locally — pick ports nothing else is using:
+Both services, on ports nothing else is using:
 
 ```bash
 python -m uvicorn app.main:app --port 8090
@@ -201,58 +274,11 @@ python -m uvicorn app.main:app --port 8090
 npm --prefix codes/frontremix run build && CINEMERIDIAN_API_URL=http://127.0.0.1:8090 PORT=3100 npx --prefix codes/frontremix remix-serve codes/frontremix/build/server/index.js
 ```
 
-## The agent cannot break anything
+## Deployment
 
-`mcp-clickhouse` runs read-only unless write access is enabled, and the agent
-needs to write its own findings back through the same server it reads with.
-That flag is all-or-nothing, so the boundary is a grant instead: the agent
-connects as a ClickHouse user with `SELECT` across the database and `INSERT`
-into `continuity_findings` alone. `DROP`, `TRUNCATE`, and writes to any other
-table are refused by the server. Setup scripts use the admin user, which never
-has a model attached to it.
-
-## Measuring honestly
-
-The continuity errors in the demo scene are planted by
-`scripts/generate_production.py`, so there is an answer key
-(`assets/ground_truth.json`) and "the agent found N of M" is a claim that can
-be checked rather than asserted. The key never enters a prompt, a database
-table, or a file path — if the answers leak through a path, the score means
-nothing.
-
-## What the vision pass can and cannot do
-
-Measured against the answer key, Gemini reads shadow **direction** to within a
-few degrees once a shadow is long enough to have one, and **underestimates
-extreme lengths by roughly forty percent**. A shadow occupying half a percent of
-frame produced a sixty-eight degree error reported at 0.90 confidence — so
-`frame_coverage_pct` is the filter to trust, not `confidence`.
-
-None of that sinks the design, and the reason is worth stating plainly: the
-system compares takes against takes, never against absolute truth, so a
-systematic bias cancels. The one place absolute values matter — a mis-slated
-take — is handled by normalising each take against the median of its own setup,
-because framing is identical within a setup and the bias travels with framing.
-
-## Measuring honestly
-
-The continuity errors in the demo scene are planted by
-`scripts/generate_production.py`, so there is an answer key
-(`assets/ground_truth.json`) and "the agent found N of M" is a claim that can
-be checked rather than asserted. The key never enters a prompt, a database
-table, or a file path — if the answers leak through a path, the score means
-nothing.
-
-On the current scene the agent finds **three of five** planted errors, plus one
-finding nobody planted that is nevertheless real: a nineteen-degree elevation
-jump across a cut. The two it misses are the mis-slated take and an asset
-version drift.
-
-## Deploying
-
-Two Cloud Run services, built by Cloud Build. Secrets go through Secret
-Manager, never through `--set-env-vars`, and there is no service account key
-file anywhere — the runtime uses the service account directly.
+Two Cloud Run services, built by Cloud Build. Secrets go through Secret Manager,
+never through `--set-env-vars`, and there is no service account key file
+anywhere — the runtime uses the service account directly.
 
 ```bash
 gcloud builds submit codes/backpy --tag us-central1-docker.pkg.dev/$PROJECT/cinemeridian/cinemeridian-api:latest
@@ -262,18 +288,139 @@ gcloud builds submit codes/backpy --tag us-central1-docker.pkg.dev/$PROJECT/cine
 gcloud run deploy cinemeridian-api --image us-central1-docker.pkg.dev/$PROJECT/cinemeridian/cinemeridian-api:latest --service-account cinemeridian-sa@$PROJECT.iam.gserviceaccount.com --allow-unauthenticated --memory 2Gi --cpu 2 --timeout 900 --concurrency 8 --set-secrets CLICKHOUSE_PASSWORD=clickhouse-password:latest,CLICKHOUSE_AGENT_PASSWORD=clickhouse-agent-password:latest
 ```
 
-The timeout is 900 seconds because one investigation takes around three
-minutes and the 300-second default cuts it off. Concurrency is low because
-each request holds an MCP subprocess.
+```bash
+gcloud run deploy cinemeridian-console --image us-central1-docker.pkg.dev/$PROJECT/cinemeridian/cinemeridian-console:latest --allow-unauthenticated --memory 512Mi --set-env-vars CINEMERIDIAN_API_URL=$API_URL,GCS_ASSET_BUCKET=cinemeridian-assets
+```
 
-## Status
+The timeout is 900 seconds because one investigation takes around three minutes
+and the 300-second default cuts it off. Concurrency is low because each request
+holds an MCP subprocess.
 
-Built, deployed and working: the physics engine and its tests, the ClickHouse
-schema with the simulated production loaded, the restricted agent user, the
-synthetic asset pipeline, the perception pass, the agent's investigation over
-MCP — verified locally, inside the container, and on Cloud Run — and the
-console. `mcp-clickhouse` starts in 2.2 seconds in the deployed service.
+Two things the backend image must carry, both learned by watching it fail:
 
-## Licence
+- **The `uv` binary**, copied from `ghcr.io/astral-sh/uv`. Without it the agent
+  starts cleanly, answers questions, and never reaches the database at all.
+- **`UV_CACHE_DIR=/tmp/uv-cache`**, because `/tmp` is the writable path in the
+  container. Pre-installing `mcp-clickhouse` at build time drops MCP startup
+  from 8.6 seconds to 2.2.
+
+## Configuration
+
+Copy [`.env.example`](.env.example) into `credentials/gcp.env` and
+`credentials/clickhouse.env`. Both are gitignored; the `credentials/` folder is
+never committed under any circumstances.
+
+| Variable | Purpose |
+|---|---|
+| `GOOGLE_CLOUD_PROJECT` | project that owns Vertex AI and the asset bucket |
+| `GOOGLE_CLOUD_LOCATION` | `us-central1`, matching ClickHouse |
+| `GOOGLE_GENAI_USE_VERTEXAI` | `true` — Vertex AI, not the developer API |
+| `GOOGLE_CLOUD_QUOTA_PROJECT` | set explicitly, so this project does not depend on the machine-wide ADC quota project that every local project shares |
+| `GCS_ASSET_BUCKET` | where synthetic frames live |
+| `CINEMERIDIAN_MODEL` | `gemini-2.5-flash` |
+| `CLICKHOUSE_HOST` / `PORT` / `USER` / `PASSWORD` | admin credentials, used by setup scripts only |
+| `CLICKHOUSE_AGENT_USER` / `AGENT_PASSWORD` | the restricted user the agent runs as, created by `create_agent_user.py` |
+
+Local development uses ADC (`gcloud auth application-default login`); Cloud Run
+uses the runtime service account. No JSON key is ever downloaded.
+
+## What is real and what is simulated
+
+- All footage is **synthetic and self-made**. The base plates come from Gemini
+  image models on Vertex AI, generated under flat overcast light; every variable
+  in dispute — shadow direction and length, colour temperature, footprint count,
+  waterline — is composited on afterwards at a value we chose. No film or
+  broadcast material is used anywhere.
+- There is no real production, no real crew, and no real film. *The Tide Line*
+  does not exist.
+- Sun and moon positions are **real astronomy** (NOAA solar position algorithm,
+  in [`ephemeris.py`](codes/backpy/app/ephemeris.py), no dependencies).
+- **Tide is simulated** — two harmonic constituents against an arbitrary epoch.
+  Weather telemetry is simulated too, from a physical afternoon model rather
+  than a random walk. Neither is a forecast for any real place, and nothing in
+  the demo presents them as one.
+
+## Results
+
+The continuity errors in the demo scene are planted deliberately by
+[`generate_production.py`](scripts/generate_production.py), so there is an answer
+key ([`assets/ground_truth.json`](assets/ground_truth.json)) and "the agent found
+N of M" is a claim that can be checked rather than asserted. The key never enters
+a prompt, a database table, or a file path — if the answers leak through a path,
+the score means nothing.
+
+On the current scene the agent finds **three of five** planted errors, plus one
+finding nobody planted that is nevertheless real: a nineteen-degree elevation
+jump across a cut. It misses the mis-slated take and an asset version drift.
+
+Numbers worth quoting, all measured rather than estimated:
+
+| | |
+|---|---|
+| Match-window query | **12 ms** server-side, scanning 99,810 rows |
+| MCP startup on Cloud Run | **2.2 s** |
+| Data in ClickHouse | 108,000 ephemeris rows, 270,000 telemetry rows, 122 observations |
+| The pickup window it finds | **5 minutes a day, for 8 days**, five weeks out |
+
+**What the vision pass can and cannot do.** Measured against the answer key,
+Gemini reads shadow *direction* to within a few degrees once a shadow is long
+enough to have one, and **underestimates extreme lengths by roughly forty
+percent**. A shadow occupying half a percent of frame produced a sixty-eight
+degree error reported at 0.90 confidence — so `frame_coverage_pct` is the filter
+to trust, not `confidence`.
+
+None of that sinks the design, and the reason is worth stating plainly: the
+system compares takes against takes, never against absolute truth, so a
+systematic bias cancels. The one place absolute values matter — a mis-slated
+take — is handled by normalising each take against the median of its own setup,
+because framing is identical within a setup and the bias travels with framing.
+
+## Credits and licenses
+
+- **Google ADK**, **google-genai**, **Vertex AI** (Gemini 2.5 Flash for
+  perception and adjudication, Gemini 3 Pro Image for the base plates) — Google
+  Cloud. This project uses no AI SDK from any other provider.
+- **[mcp-clickhouse](https://github.com/ClickHouse/mcp-clickhouse)** — ClickHouse,
+  Apache 2.0. Run as a stdio subprocess; not vendored.
+- **ClickHouse Cloud** — the analytical database.
+- **FastAPI**, **uvicorn**, **Pillow**, **Remix**, **React** — their respective
+  open source licences.
+- Solar position follows the **NOAA** algorithm, implemented from the published
+  method rather than copied from any package.
+
+## How this was built
+
+The order was deliberate: physics first, then data, then the agent, then
+pictures. The ephemeris engine and its tests came before anything else, because
+everything downstream compares against it — and its tests check facts that hold
+independently of the implementation (declination at the solstices, the geometry
+of solar noon, the shape of the cotangent) rather than numbers copied from a
+previous run.
+
+Three findings changed the design:
+
+**The shoot dates had to straddle a solstice.** With the original September
+dates the match-window query returned *nothing*, and the reason is physics
+rather than a bug: sun geometry repeats when declination repeats, and
+declination is symmetric about a solstice. An early-September shoot finds its
+mirror in April, seven months out. Moved to early December, the window lands
+five weeks later — and it is five minutes a day for eight days, which is a far
+better answer than a comfortable one. That is also real production advice: if an
+exterior scene may need pickups, schedule it near a solstice.
+
+**An image model cannot be asked for "the same scene, one variable changed."**
+Ask twice and you get two different beaches. So the model supplies only what
+must look real and never changes — sand, sea, sky, figures — under flat overcast
+light, and everything in dispute is composited on afterwards from numbers we
+choose. Overcast is load-bearing: a golden-hour plate arrives with shadows baked
+in at an angle nobody picked and cannot remove.
+
+**Vision is not precise enough for geometry, and does not need to be.** Asking
+Gemini to locate the figures returned boxes offset and twice their true height,
+so anchors are measured by hand once per plate. Vision is used for what it is
+good at: relative and magnitude judgements, and the one question a database
+cannot answer — would an audience notice, at speed.
+
+## License
 
 MIT — see [LICENSE](LICENSE).

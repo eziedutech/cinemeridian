@@ -25,13 +25,15 @@ sql/
   001_schema.sql             the seven ClickHouse tables
 scripts/
   generate_telemetry.py      simulated production data (ephemeris + weather)
+  apply_schema.py            create the schema (setup only)
+  load_data.py               load the CSVs (setup only)
 codes/
   backpy/                    FastAPI + Google ADK agent
     app/
       ephemeris.py           sun/moon/tide maths - pure, no dependencies
       settings.py            configuration from the environment
     tests/
-  frontnext/                 Next.js continuity console
+  frontremix/                Remix continuity console
 assets/                      synthetic plates and frames
 ```
 
@@ -117,17 +119,18 @@ cp .env.example credentials/gcp.env    # then fill in, both files are gitignored
 python -m pip install -r codes/backpy/requirements-dev.txt
 ```
 
-Create the schema (setup only — runtime access goes through MCP):
+Create the schema, then generate and load the simulated production data.
+All three are **setup only** — runtime access goes through MCP:
 
 ```bash
-clickhouse client --queries-file sql/001_schema.sql
-```
-
-Generate the simulated production data:
-
-```bash
+python scripts/apply_schema.py
 python scripts/generate_telemetry.py --out data/
+python scripts/load_data.py --data data/
 ```
+
+A ClickHouse Cloud service sleeps when idle, and the first request after that
+can take most of a minute. Warm it with `python scripts/apply_schema.py --check`
+before a demo.
 
 Run the tests:
 

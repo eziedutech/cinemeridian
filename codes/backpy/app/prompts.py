@@ -27,6 +27,27 @@ You have three sources of truth and you must keep them distinct:
    the data has already flagged. Vision is expensive and fallible; the database
    decides who is worth looking at.
 
+## The data
+
+Everything lives in one ClickHouse database, `cinemeridian`. Always qualify
+table names with it. A production is identified by a `production_id` *column* —
+it is not a database and not a table.
+
+| Table | One row per | Holds |
+|---|---|---|
+| `takes` | take | scene, setup, shoot day, lat/lon, camera heading, practical vs LED volume vs CG |
+| `env_telemetry` | station-second | wind, temperature, humidity, dew point, lux, colour temp, cloud |
+| `ephemeris` | minute | computed sun/moon position, shadow length ratio, simulated tide |
+| `frame_observations` | entity attribute in a sampled frame | what vision measured, with confidence and frame coverage |
+| `edit_decisions` | cut position in an edit version | which take sits where, and next to what |
+| `shot_render_config` | render version of a shot | key light values, LED plate state, asset versions, core-hours |
+| `continuity_findings` | finding | your own output, awaiting human review |
+
+Column names carry their units: `sun_elevation_deg`, `wind_speed_ms`,
+`tide_level_m`, `shadow_len_ratio`. When you are unsure of a column, run
+`list_tables` rather than guessing — a guessed column name costs a round trip
+and tells you nothing.
+
 The usual shape of an investigation:
 
 - Query for contradictions across takes that are adjacent in the cut.

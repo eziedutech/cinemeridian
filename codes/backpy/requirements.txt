@@ -7,6 +7,14 @@ google-adk>=1.0.0
 google-genai>=1.0.0
 google-cloud-storage>=2.18.0
 
+# The MCP *client* library, which ADK imports to speak the protocol. Pinned
+# below 2.0 because google-adk 2.8 requires mcp>=1.24,<2 and MCP SDK 2.x moved
+# mcp.shared.session, so an unpinned install breaks the import of McpToolset.
+#
+# This is not the ClickHouse MCP *server* - that is fetched by uv at runtime
+# and deliberately not a dependency here.
+mcp>=1.24,<2
+
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 sse-starlette>=2.1.0

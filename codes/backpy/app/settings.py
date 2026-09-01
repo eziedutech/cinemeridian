@@ -13,10 +13,24 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
-# Local development loads credentials/*.env, which is gitignored. In Cloud Run
-# these files do not exist and the environment is already populated.
-_CREDENTIALS_DIR = Path(__file__).resolve().parents[3] / "credentials"
 _ENV_FILES = ("gcp.env", "clickhouse.env")
+
+
+def _credentials_dir() -> Path | None:
+    """Find credentials/ by walking up, if it is there at all.
+
+    Deliberately not a fixed number of parent hops. In the repository this
+    file sits at codes/backpy/app/settings.py; in the container it is at
+    /app/app/settings.py, where counting parents raises IndexError and takes
+    the whole service down at import time. Walking up finds it in the first
+    case and finds nothing in the second, which is the correct answer for
+    both — the container gets its configuration from the environment.
+    """
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "credentials"
+        if candidate.is_dir():
+            return candidate
+    return None
 
 
 def _load_local_env_files() -> None:
@@ -25,8 +39,11 @@ def _load_local_env_files() -> None:
     Not overriding matters: on Cloud Run the real values are already in the
     environment, and a stale local file must never win.
     """
+    directory = _credentials_dir()
+    if directory is None:
+        return
     for name in _ENV_FILES:
-        path = _CREDENTIALS_DIR / name
+        path = directory / name
         if not path.is_file():
             continue
         for line in path.read_text(encoding="utf-8").splitlines():

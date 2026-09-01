@@ -74,8 +74,17 @@ def build_clickhouse_toolset(settings: Settings | None = None) -> McpToolset:
     )
 
 
-def build_agent(settings: Settings | None = None) -> LlmAgent:
-    """The continuity agent, with ClickHouse attached over MCP."""
+def build_agent(
+    settings: Settings | None = None,
+    clickhouse_toolset: McpToolset | None = None,
+) -> LlmAgent:
+    """The continuity agent, with ClickHouse attached over MCP.
+
+    Pass an existing toolset to share one already-warm subprocess. Launching
+    mcp-clickhouse takes well over ten seconds the first time — uv has to
+    resolve and start the server — and paying that on the first request means
+    a dead pause in front of whoever is watching.
+    """
     settings = settings or get_settings()
     logger.info("building %s on %s", AGENT_NAME, settings.model)
     return LlmAgent(
@@ -86,7 +95,7 @@ def build_agent(settings: Settings | None = None) -> LlmAgent:
             "CG shots by comparing observed frames against computed physics."
         ),
         instruction=CONTINUITY_AGENT_INSTRUCTION,
-        tools=[build_clickhouse_toolset(settings)],
+        tools=[clickhouse_toolset or build_clickhouse_toolset(settings)],
     )
 
 

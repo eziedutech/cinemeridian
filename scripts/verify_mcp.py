@@ -49,8 +49,14 @@ async def stage_one() -> list[str]:
     """Start the MCP server and list what it offers."""
     _rule("Stage 1 - mcp-clickhouse stdio server")
     settings = get_settings()
-    print(f"  target   {settings.clickhouse_user}@{settings.clickhouse_host}"
-          f"/{settings.clickhouse_database}")
+    # Report the user the subprocess actually connects as, not the admin one
+    # in the config — they differ, and that difference is the safety boundary.
+    effective_user = settings.mcp_clickhouse_env()["CLICKHOUSE_USER"]
+    print(
+        f"  target   {effective_user}@{settings.clickhouse_host}"
+        f"/{settings.clickhouse_database}"
+        f"{' [restricted]' if settings.uses_restricted_user else ' [admin]'}"
+    )
 
     toolset = build_clickhouse_toolset(settings)
     started = time.perf_counter()

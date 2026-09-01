@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +49,17 @@ PLATES_DIR = ROOT / "assets" / "plates"
 #: once. Served only from `global`.
 MODEL = "gemini-3-pro-image"
 LOCATION = "global"
+
+#: A new project's quota for the pro image model is very small — four images
+#: was enough to exhaust it. The flash image model is served from us-central1
+#: with a far larger allowance and is good enough for the setups that carry
+#: less of the frame: close-ups, the sand insert, the empty CG plate.
+FALLBACK_MODEL = "gemini-2.5-flash-image"
+FALLBACK_LOCATION = "us-central1"
+
+#: 429 on these models is a rate limit rather than a hard wall, so backing off
+#: and retrying recovers. Falling back only after that, not instead of it.
+RETRY_DELAYS_S = (20, 45, 90)
 
 #: Shared language for every plate, so the setups read as one location shot by
 #: one crew. The "no visible sun, no strong shadows" clause is load-bearing.
@@ -106,7 +118,6 @@ def generate(setup_id: str, candidates: int, reference: Path | None) -> list[Pat
     from google.genai import Client, types
 
     settings = get_settings()
-    client = Client(vertexai=True, project=settings.project_id, location=LOCATION)
 
     prompt = build_prompt(setup_id, reference is not None)
     contents: list = [prompt]
@@ -121,16 +132,38 @@ def generate(setup_id: str, candidates: int, reference: Path | None) -> list[Pat
 
     print(f"\n{setup_id}" + (f"  (reference: {reference.name})" if reference else ""))
 
+    def call(model: str, location: str):
+        client = Client(vertexai=True, project=settings.project_id, location=location)
+        return client.models.generate_content(
+            model=model,
+            contents=contents,
+            config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
+        )
+
+    def call_with_backoff():
+        """Retry a rate limit, then drop to the cheaper model rather than stop.
+
+        429 here is a per-minute rate limit, not an exhausted allowance, so
+        waiting recovers. The fallback exists so a long run finishes rather
+        than dying two setups from the end.
+        """
+        for attempt, delay in enumerate(RETRY_DELAYS_S, start=1):
+            try:
+                return call(MODEL, LOCATION), MODEL
+            except Exception as exc:  # noqa: BLE001
+                if "429" not in str(exc) and "RESOURCE_EXHAUSTED" not in str(exc):
+                    raise
+                print(f"  rate limited (attempt {attempt}), waiting {delay}s")
+                time.sleep(delay)
+        print(f"  falling back to {FALLBACK_MODEL}")
+        return call(FALLBACK_MODEL, FALLBACK_LOCATION), FALLBACK_MODEL
+
     PLATES_DIR.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     for index in range(1, candidates + 1):
         # One image per call. The image models return a single image, so
         # candidates come from repeated calls rather than a count parameter.
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(response_modalities=["IMAGE"]),
-        )
+        response, used_model = call_with_backoff()
         parts = response.candidates[0].content.parts if response.candidates else []
         for part in parts:
             if part.inline_data and part.inline_data.data:
@@ -139,7 +172,7 @@ def generate(setup_id: str, candidates: int, reference: Path | None) -> list[Pat
                 written.append(path)
                 print(
                     f"  wrote  {path.relative_to(ROOT)}  "
-                    f"({len(part.inline_data.data) // 1024} KB)"
+                    f"({len(part.inline_data.data) // 1024} KB, {used_model})"
                 )
             elif part.text:
                 print(f"  note   {part.text.strip()[:140]}")

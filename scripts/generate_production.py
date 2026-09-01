@@ -170,17 +170,26 @@ def build_takes() -> tuple[list[dict], list[dict]]:
 
 
 #: The cut, as two versions. v13 is the editor's earlier assembly; v14 is the
-#: one they just locked, and it reorders the coverage. Most of the findings
-#: only exist in v14 — the footage did not change, the adjacencies did. That
-#: is the argument for recomputing on every version.
-EDIT_V13 = [
-    ("su01", 1), ("su02", 2), ("su04", 3), ("su03", 4), ("su05", 5),
-    ("su06", 6), ("su07", 7), ("su01", 8), ("su08", 9), ("su06", 10),
-]
-EDIT_V14 = [
-    ("su01", 1), ("su04", 2), ("su02", 3), ("su07", 4), ("su05", 5),
-    ("su03", 6), ("su06", 7), ("su08", 8), ("su07", 9), ("su01", 10),
-]
+#: one they just locked, and it moves the footprint insert forward. The footage
+#: did not change — the adjacencies did. That is the argument for recomputing
+#: on every version rather than once at ingest.
+#:
+#: One cut per setup, so a take appears once and carries one set of values.
+EDIT_V13 = ["su01", "su02", "su04", "su05", "su03", "su06", "su07", "su08"]
+EDIT_V14 = ["su01", "su04", "su07", "su02", "su05", "su03", "su06", "su08"]
+
+#: How many footprints are in the sand when each setup was shot. Footprints
+#: only accumulate — the crew rakes between setups, so the count tracks the
+#: story rather than the shoot, and a cut that shows fewer of them later is
+#: running the scene backwards.
+#:
+#: These values are monotonic in v13 order (2, 4, 6, 8, 10, 12, 14, 16) and are
+#: not in v14, where su07's fourteen prints land between shots carrying six and
+#: four. No single frame is wrong. The order is.
+FOOTPRINTS_BY_SETUP = {
+    "su01": 2, "su02": 4, "su04": 6, "su05": 8,
+    "su03": 10, "su06": 12, "su07": 14, "su08": 16,
+}
 
 #: Which take of each setup made the cut.
 SELECTED_TAKE = {
@@ -195,7 +204,8 @@ def build_edit_decisions() -> tuple[list[dict], list[dict]]:
     created = datetime(2026, 12, 18, 11, 0, tzinfo=UTC)
 
     for version, order, offset_days in (("v13", EDIT_V13, 0), ("v14", EDIT_V14, 4)):
-        for position, (setup_id, beat) in enumerate(order, start=1):
+        for position, setup_id in enumerate(order, start=1):
+            beat = position
             rows.append(
                 {
                     "edit_version": version,
@@ -221,9 +231,13 @@ def build_edit_decisions() -> tuple[list[dict], list[dict]]:
             "edit_version": "v14",
             "entity": "footprints",
             "detail": (
-                "su07 moved from cut position 7 (v13) to position 4 (v14); the "
-                "footprint count now decreases across the cut"
+                "su07 moved from cut position 7 (v13) to position 3 (v14). Its "
+                "fourteen footprints now sit between shots carrying six and four, "
+                "so the count runs 2, 6, 14, 4 across the opening cuts and the "
+                "scene plays backwards. Every individual frame is correct."
             ),
+            "v13_sequence": [FOOTPRINTS_BY_SETUP[s] for s in EDIT_V13],
+            "v14_sequence": [FOOTPRINTS_BY_SETUP[s] for s in EDIT_V14],
         }
     )
 

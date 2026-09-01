@@ -88,9 +88,25 @@ class FrameSpec:
     waterline_offset: float      # 0 = as shot, positive = tide further up the beach
 
 
+#: Setups with no figure standing on visible ground. A close-up shows a face,
+#: not the sand; the insert and the CG plate have nobody in them. These frames
+#: still carry colour temperature and footprint count, which is most of what
+#: they are cut for — but no cast shadow, and claiming one would be a lie the
+#: vision pass would then dutifully measure.
+NO_GROUND_SHADOW = {"su04", "su05", "su07", "su08"}
+
+
 def load_plate(setup_id: str) -> tuple[Image.Image, dict]:
     image = Image.open(PLATES_DIR / f"{setup_id}.png").convert("RGB")
-    meta = json.loads((PLATES_DIR / f"{setup_id}.meta.json").read_text(encoding="utf-8"))
+    meta_path = PLATES_DIR / f"{setup_id}.meta.json"
+    if meta_path.is_file():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    else:
+        meta = {"figures": [], "ground": {"foreshorten": 0.5}, "horizon_y": 0.4}
+    meta.setdefault("figures", [])
+    meta.setdefault("ground", {"foreshorten": 0.5})
+    if setup_id in NO_GROUND_SHADOW:
+        meta["figures"] = []
     return image, meta
 
 
@@ -191,7 +207,10 @@ def stamp_footprints(
     draw = ImageDraw.Draw(layer)
 
     # Keep them on the open sand below the figures and clear of the dune grass.
-    top = max(meta["figures"][0]["feet_y"], meta["figures"][-1]["feet_y"]) + 0.01
+    # With nobody in frame — the insert, the empty CG plate — the sand starts
+    # higher and the prints have the whole lower half to live in.
+    figures = meta.get("figures") or []
+    top = (max(f["feet_y"] for f in figures) + 0.01) if figures else 0.45
     for _ in range(count):
         x = rng.uniform(0.30, 0.68) * width
         y = rng.uniform(top, min(top + 0.14, 0.86)) * height
@@ -302,13 +321,77 @@ def demo() -> int:
     return 0
 
 
+def render_all(out_root: Path) -> int:
+    """Render one sampled frame per take of the scene, and the answer key.
+
+    Frames are rendered from each take's **true** capture time, never from the
+    slate. That is what gives the mis-slated take somewhere to be caught: its
+    row in `takes` says one thing, its shadows say another, and only the
+    physics knows which to believe.
+    """
+    from generate_production import (
+        FOOTPRINTS_BY_SETUP,
+        SCENE_ID,
+        SCHEDULE,
+        SETUPS,
+        TAKE_LENGTH_S,
+        TURNAROUND_S,
+        _utc,
+    )
+
+    headings = {s[0]: s[2] for s in SETUPS}
+    beats = {setup: index + 1 for index, setup in enumerate(FOOTPRINTS_BY_SETUP)}
+
+    specs: list[FrameSpec] = []
+    skipped: list[str] = []
+
+    for setup_id, day_index, start_local, count in SCHEDULE:
+        if not (PLATES_DIR / f"{setup_id}.png").is_file():
+            skipped.append(setup_id)
+            continue
+        for take_number in range(1, count + 1):
+            captured = _utc(day_index, start_local) + timedelta(
+                seconds=(take_number - 1) * (TAKE_LENGTH_S + TURNAROUND_S)
+            )
+            take_id = f"{SCENE_ID}_{setup_id}_t{take_number:02d}"
+            spec = spec_for_take(
+                take_id=take_id,
+                setup_id=setup_id,
+                story_beat=beats[setup_id],
+                captured_at=captured,
+                camera_heading_deg=headings[setup_id],
+                footprint_count=FOOTPRINTS_BY_SETUP[setup_id],
+            )
+            specs.append(spec)
+            render(
+                spec,
+                out_root / SCENE_ID / setup_id / f"t{take_number:02d}" / "f000.jpg",
+            )
+
+    (out_root / SCENE_ID / "frame_truth.json").write_text(
+        json.dumps([asdict(s) for s in specs], indent=2) + "\n", encoding="utf-8"
+    )
+
+    print(f"rendered {len(specs)} frames into {out_root.relative_to(ROOT)}/{SCENE_ID}")
+    if skipped:
+        print(f"  skipped (no plate yet): {', '.join(skipped)}")
+    print(f"  answer key: {(out_root / SCENE_ID / 'frame_truth.json').relative_to(ROOT)}")
+    print("  the key never enters a prompt, a table, or a file path")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--demo", action="store_true", help="render the spike sequence")
+    parser.add_argument("--all", action="store_true", help="render every take of the scene")
+    parser.add_argument("--out", default="assets/frames")
     args = parser.parse_args()
     if args.demo:
         return demo()
-    raise SystemExit("pass --demo")
+    if args.all:
+        out = Path(args.out) if Path(args.out).is_absolute() else ROOT / args.out
+        return render_all(out)
+    raise SystemExit("pass --demo or --all")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,16 @@
+{
+  "_note": "Anchors measured by hand from the plate. Only the far figure casts a shadow the camera can see; the foreground shoulder is too close to frame edge to carry one usefully.",
+  "plate": "su02.png",
+  "horizon_y": 0.37,
+  "ground": {
+    "foreshorten": 0.55
+  },
+  "figures": [
+    {
+      "label": "right",
+      "feet_x": 0.62,
+      "feet_y": 0.822,
+      "head_y": 0.36
+    }
+  ]
+}

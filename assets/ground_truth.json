@@ -17,7 +17,27 @@
       "type": "monotonic_violation",
       "edit_version": "v14",
       "entity": "footprints",
-      "detail": "su07 moved from cut position 7 (v13) to position 4 (v14); the footprint count now decreases across the cut"
+      "detail": "su07 moved from cut position 7 (v13) to position 3 (v14). Its fourteen footprints now sit between shots carrying six and four, so the count runs 2, 6, 14, 4 across the opening cuts and the scene plays backwards. Every individual frame is correct.",
+      "v13_sequence": [
+        2,
+        4,
+        6,
+        8,
+        10,
+        12,
+        14,
+        16
+      ],
+      "v14_sequence": [
+        2,
+        6,
+        14,
+        4,
+        8,
+        10,
+        12,
+        16
+      ]
     },
     {
       "id": "E3",

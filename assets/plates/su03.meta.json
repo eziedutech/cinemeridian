@@ -1,0 +1,16 @@
+{
+  "_note": "Reverse of su02. Same treatment: the far figure carries the readable shadow.",
+  "plate": "su03.png",
+  "horizon_y": 0.42,
+  "ground": {
+    "foreshorten": 0.55
+  },
+  "figures": [
+    {
+      "label": "left",
+      "feet_x": 0.355,
+      "feet_y": 0.79,
+      "head_y": 0.375
+    }
+  ]
+}

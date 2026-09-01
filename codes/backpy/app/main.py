@@ -10,6 +10,7 @@ before a judge does.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -18,6 +19,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.agent import AGENT_NAME, build_agent, build_clickhouse_toolset
@@ -75,6 +77,16 @@ app = FastAPI(
     title="CineMeridian",
     description="Continuity intelligence for the shoot and the cut.",
     lifespan=lifespan,
+)
+
+# The console is a separate Cloud Run service, so the browser calls this one
+# cross-origin. Open, because everything served here is a synthetic demo and a
+# judge has to reach it without logging in to anything.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
 )
 
 
@@ -284,16 +296,57 @@ async def findings(edit_version: str = "v14", scene_id: str = "sc14") -> dict[st
     if query_tool is None:
         raise HTTPException(status_code=503, detail="run_query unavailable over MCP")
 
+    # No FORMAT clause: mcp-clickhouse appends `FORMAT Native` of its own and
+    # ClickHouse rejects a statement carrying two. The tool hands back columns
+    # and rows already, so asking for a format here buys nothing anyway.
     sql = (
-        "SELECT finding_id, created_at, finding_type, severity, take_a, take_b, "
-        "entity, attribute, observed_delta, computed_expectation, gemini_verdict, "
-        "recommendation, visible_in_cut, human_reviewed "
-        f"FROM cinemeridian.continuity_findings "
+        "SELECT finding_id, toString(created_at) AS created_at, finding_type, "
+        "toString(severity) AS severity, take_a, take_b, entity, attribute, "
+        "observed_delta, computed_expectation, gemini_verdict, recommendation, "
+        "visible_in_cut, human_reviewed "
+        "FROM cinemeridian.continuity_findings "
         f"WHERE edit_version = '{edit_version}' AND scene_id = '{scene_id}' "
-        "ORDER BY severity DESC, created_at DESC FORMAT JSONEachRow"
+        "ORDER BY severity DESC, created_at DESC"
     )
     result = await query_tool.run_async(args={"query": sql}, tool_context=None)
     return {"edit_version": edit_version, "scene_id": scene_id, "result": result}
+
+
+@app.get("/api/frame")
+async def frame(uri: str):
+    """Stream one frame out of GCS.
+
+    The console needs to show evidence pairs to a judge who is not logged in to
+    anything, and the alternative — making the bucket world-readable — hands
+    out every frame in the production to anyone who guesses a path. Proxying
+    keeps the bucket private and still lets the page render.
+
+    Only gs:// URIs inside the project's own asset bucket are served. Without
+    that check this endpoint would happily fetch any object the runtime service
+    account can read.
+    """
+    from fastapi.responses import Response
+    from google.cloud import storage
+
+    settings = get_settings()
+    prefix = f"gs://{settings.gcs_asset_bucket}/"
+    if not uri.startswith(prefix):
+        raise HTTPException(status_code=400, detail="uri must be inside the asset bucket")
+
+    blob_name = uri[len(prefix) :]
+    try:
+        client = storage.Client(project=settings.project_id)
+        blob = client.bucket(settings.gcs_asset_bucket).blob(blob_name)
+        data = await asyncio.to_thread(blob.download_as_bytes)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=404, detail=f"frame not available: {exc}") from exc
+
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        # The frames are immutable once rendered, so let the browser keep them.
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @app.exception_handler(ConfigError)

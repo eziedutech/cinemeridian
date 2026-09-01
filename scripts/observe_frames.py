@@ -25,6 +25,7 @@ import csv
 import hashlib
 import json
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,8 +44,28 @@ MONOTONIC = {
 }
 
 
+#: A dropped connection partway through a long run should cost one frame, not
+#: the whole pass. These are transient by definition, so retrying is the right
+#: response; only a repeated failure is worth reporting.
+RETRY_DELAYS_S = (5, 15, 40)
+
+
 def frame_uri(bucket: str, relative: Path) -> str:
     return f"gs://{bucket}/frames/{relative.as_posix()}"
+
+
+def observe_with_retry(path: Path, settings) -> list[dict] | None:
+    """Observe one frame, surviving a transient network failure."""
+    last: Exception | None = None
+    for delay in RETRY_DELAYS_S:
+        try:
+            return observe_frame(path.read_bytes(), mime_type="image/jpeg", settings=settings)
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            print(f"      {type(exc).__name__}, retrying in {delay}s")
+            time.sleep(delay)
+    print(f"      giving up on this frame: {last}")
+    return None
 
 
 def upload(bucket_name: str, relative: Path, path: Path) -> None:
@@ -61,6 +82,7 @@ def main() -> int:
     parser.add_argument("--out", default="data")
     parser.add_argument("--upload", action="store_true", help="also push frames to GCS")
     parser.add_argument("--limit", type=int, help="stop after N frames, for a smoke test")
+    parser.add_argument("--restart", action="store_true", help="ignore existing output and redo everything")
     args = parser.parse_args()
 
     settings = get_settings()
@@ -79,7 +101,23 @@ def main() -> int:
     if not frames:
         sys.exit("no frames found")
 
+    out_dir = ROOT / args.out if not Path(args.out).is_absolute() else Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "frame_observations.csv"
+
+    # Resume rather than restart. Thirty frames is thirty billable calls, and
+    # losing all of them to one dropped connection at frame thirteen is exactly
+    # how the first run of this script ended.
     rows: list[dict] = []
+    done: set[str] = set()
+    if out_path.is_file() and not args.restart:
+        with out_path.open(newline="", encoding="utf-8") as fh:
+            for row in csv.DictReader(fh):
+                rows.append(row)
+                done.add(row["take_id"])
+        if done:
+            print(f"Resuming: {len(done)} takes already observed\n")
+
     print(f"Observing {len(frames)} frames with {settings.model}\n")
 
     for index, path in enumerate(frames, start=1):
@@ -88,10 +126,14 @@ def main() -> int:
         setup_id, take_dir = relative.parts[1], relative.parts[2]
         take_id = f"{SCENE_ID}_{setup_id}_{take_dir}"
 
-        observations = observe_frame(path.read_bytes(), mime_type="image/jpeg", settings=settings)
+        if take_id in done:
+            print(f"  [{index:>2}/{len(frames)}] {take_id:<20} already done")
+            continue
+
+        observations = observe_with_retry(path, settings)
+        if observations is None:
+            continue
         uri = frame_uri(settings.gcs_asset_bucket, relative)
-        if args.upload:
-            upload(settings.gcs_asset_bucket, relative, path)
 
         kept = 0
         for observation in observations:
@@ -129,13 +171,19 @@ def main() -> int:
 
         print(f"  [{index:>2}/{len(frames)}] {take_id:<20} {kept:>2} measurements")
 
-    out_dir = ROOT / args.out if not Path(args.out).is_absolute() else Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "frame_observations.csv"
-    with out_path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
+        # Flush after every frame. Whatever happens next, the work is on disk.
+        with out_path.open("w", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+
+        # Upload last, and never let it cost an observation. The measurement
+        # is the expensive part; a failed copy to GCS can be retried for free.
+        if args.upload:
+            try:
+                upload(settings.gcs_asset_bucket, relative, path)
+            except Exception as exc:  # noqa: BLE001
+                print(f"      upload failed ({type(exc).__name__}), frame kept anyway")
 
     try:
         shown = out_path.relative_to(ROOT)

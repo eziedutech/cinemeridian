@@ -23,18 +23,31 @@ README.md                    this file
 .env.example                 configuration template
 sql/
   001_schema.sql             the seven ClickHouse tables
+  010_queries.sql            the tested queries, with the reasoning behind them
 scripts/
   generate_telemetry.py      simulated environment data (ephemeris + weather)
-  generate_production.py     the fictional scene: takes, edits, render configs
+  generate_production.py     the scene: takes, edits, render configs, answer key
+  make_plates.py             base plates, from Gemini image models
+  composite_variants.py      the controlled variables, composited exactly
+  observe_frames.py          the perception pass
   apply_schema.py            create the schema (setup only)
   create_agent_user.py       the restricted user the agent runs as (setup only)
   load_data.py               load the CSVs (setup only)
   verify_mcp.py              prove ClickHouse is reached through MCP
+  run_analysis.py            drive one investigation from the command line
+  score_findings.py          score findings against the planted errors
 codes/
   backpy/                    FastAPI + Google ADK agent
     app/
+      agent.py               the agent, and its mcp-clickhouse toolset
       ephemeris.py           sun/moon/tide maths - pure, no dependencies
+      prompts.py             the instruction, and the analysis task
       settings.py            configuration from the environment
+      tools/
+        vision.py            observe_frame(), adjudicate_pair()
+        prescribe.py         light rig and match windows
+        audit.py             the finding record
+        agent_tools.py       what the agent is actually handed
     tests/
   frontremix/                Remix continuity console
 assets/                      synthetic plates and frames
@@ -143,10 +156,38 @@ A ClickHouse Cloud service sleeps when idle, and the first request after that
 can take most of a minute. Warm it with `python scripts/apply_schema.py --check`
 before a demo.
 
+Render the frames and run the perception pass. This is the slow lane — one
+Gemini call per frame, writing observations that the queries then work on:
+
+```bash
+python scripts/make_plates.py --setup su01 --candidates 3
+python scripts/make_plates.py --rest
+python scripts/composite_variants.py --all
+python scripts/observe_frames.py --frames assets/frames --out data/ --upload
+python scripts/load_data.py --data data/
+```
+
+Then run an analysis and score it against the planted errors:
+
+```bash
+python scripts/run_analysis.py --edit-version v14
+python scripts/score_findings.py --edit-version v14
+```
+
 Run the tests:
 
 ```bash
 python -m pytest codes/backpy
+```
+
+Both services locally — pick ports nothing else is using:
+
+```bash
+python -m uvicorn app.main:app --port 8090
+```
+
+```bash
+npm --prefix codes/frontremix run build && CINEMERIDIAN_API_URL=http://127.0.0.1:8090 PORT=3100 npx --prefix codes/frontremix remix-serve codes/frontremix/build/server/index.js
 ```
 
 ## The agent cannot break anything
@@ -168,13 +209,41 @@ be checked rather than asserted. The key never enters a prompt, a database
 table, or a file path — if the answers leak through a path, the score means
 nothing.
 
+## What the vision pass can and cannot do
+
+Measured against the answer key, Gemini reads shadow **direction** to within a
+few degrees once a shadow is long enough to have one, and **underestimates
+extreme lengths by roughly forty percent**. A shadow occupying half a percent of
+frame produced a sixty-eight degree error reported at 0.90 confidence — so
+`frame_coverage_pct` is the filter to trust, not `confidence`.
+
+None of that sinks the design, and the reason is worth stating plainly: the
+system compares takes against takes, never against absolute truth, so a
+systematic bias cancels. The one place absolute values matter — a mis-slated
+take — is handled by normalising each take against the median of its own setup,
+because framing is identical within a setup and the bias travels with framing.
+
+## Measuring honestly
+
+The continuity errors in the demo scene are planted by
+`scripts/generate_production.py`, so there is an answer key
+(`assets/ground_truth.json`) and "the agent found N of M" is a claim that can
+be checked rather than asserted. The key never enters a prompt, a database
+table, or a file path — if the answers leak through a path, the score means
+nothing.
+
+On the current scene the agent finds **three of five** planted errors, plus one
+finding nobody planted that is nevertheless real: a nineteen-degree elevation
+jump across a cut. The two it misses are the mis-slated take and an asset
+version drift.
+
 ## Status
 
-Under active development for the hackathon. Working today: the physics engine
-and its tests, the ClickHouse schema with the simulated production loaded, the
-restricted agent user, and the agent querying ClickHouse through MCP — verified
-both locally and inside the container. The vision tools, the console, and the
-Cloud Run deployment are in progress.
+Built and working: the physics engine and its tests, the ClickHouse schema with
+the simulated production loaded, the restricted agent user, the synthetic asset
+pipeline, the perception pass, the agent's investigation over MCP — verified
+locally and inside the container — and the console. Cloud Run deployment is the
+remaining step.
 
 ## Licence
 

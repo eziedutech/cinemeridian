@@ -1,0 +1,235 @@
+/* The printable report.
+ *
+ * Light, not dark. The console is dark because it sits beside footage in a
+ * grading suite; a report gets printed, emailed and read on paper, and dark
+ * pages print as a sheet of ink. Everything here is set for a page rather than
+ * a screen: real margins, text that stays text so it can be searched and
+ * copied out of the PDF, and no element that depends on hovering.
+ */
+
+:root {
+  --ink: #16181c;
+  --ink-dim: #4a4e55;
+  --ink-faint: #767b83;
+  --rule: #d8dae0;
+  --rule-soft: #eceef1;
+  --paper: #ffffff;
+  --wash: #f6f7f9;
+
+  --sand: #9a6f2e;
+  --sea: #2c6a80;
+  --amber: #a86a12;
+  --alarm: #a83521;
+
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--wash);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 46px 52px 70px;
+  background: var(--paper);
+  min-height: 100vh;
+}
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-bottom: 26px;
+}
+
+.toolbar button {
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--ink);
+  border: none;
+  border-radius: 7px;
+  padding: 9px 18px;
+  cursor: pointer;
+}
+
+.toolbar button.ghost {
+  background: transparent;
+  color: var(--ink-dim);
+  border: 1px solid var(--rule);
+  font-weight: 500;
+}
+
+/* Masthead */
+
+.head { border-bottom: 2px solid var(--ink); padding-bottom: 18px; }
+
+.head h1 {
+  font-size: 25px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.head h1 span { color: var(--sand); }
+
+.head .sub { margin: 6px 0 0; color: var(--ink-dim); font-size: 14px; }
+
+.meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px 28px;
+  margin: 22px 0 0;
+  font-size: 13px;
+}
+
+.meta dt { color: var(--ink-faint); font-size: 11.5px; margin-bottom: 2px; }
+.meta dd { margin: 0; font-family: var(--mono); font-size: 13px; }
+
+/* Summary */
+
+.summary {
+  display: flex;
+  gap: 40px;
+  margin: 28px 0 0;
+  padding: 18px 22px;
+  background: var(--wash);
+  border-radius: 9px;
+}
+
+.summary .n { font-size: 26px; font-weight: 700; line-height: 1.1; }
+.summary .l { font-size: 12px; color: var(--ink-faint); }
+
+h2.section {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  margin: 38px 0 16px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* Findings */
+
+.findings { list-style: none; margin: 0; padding: 0; }
+.findings > li { margin-bottom: 20px; break-inside: avoid; }
+
+.finding {
+  position: relative;
+  border: 1px solid var(--rule);
+  border-radius: 9px;
+  padding: 20px 24px 17px;
+  background: var(--paper);
+}
+
+/* The same ribbon as the console, in ink that survives a printer. */
+.ribbon {
+  position: absolute;
+  top: 0;
+  right: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px 8px;
+  border-radius: 0 0 8px 8px;
+  line-height: 1;
+  color: #fff;
+  background: var(--ink-faint);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ribbon svg { display: block; }
+
+.ribbon-high { background: var(--alarm); }
+.ribbon-medium { background: var(--amber); }
+.ribbon-low { background: var(--sea); }
+.ribbon-info { background: var(--ink-faint); }
+
+.finding-body { padding-right: 132px; }
+
+.finding h3 { font-size: 16px; font-weight: 700; margin: 0 0 7px; }
+
+.takes {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  margin: 0 0 12px;
+}
+
+.takes .arrow { padding: 0 7px; }
+
+.delta { font-size: 14px; margin: 0 0 13px; }
+
+.line { display: flex; gap: 14px; font-size: 13px; color: var(--ink-dim); margin: 0 0 6px; }
+.line > span:first-child { flex: 0 0 118px; color: var(--ink-faint); font-size: 12px; }
+
+.recommendation {
+  margin: 14px 0 0;
+  padding: 11px 15px;
+  background: var(--wash);
+  border-left: 3px solid var(--sand);
+  border-radius: 0 7px 7px 0;
+  font-size: 13.5px;
+}
+
+.foot {
+  display: flex;
+  gap: 18px;
+  margin: 14px 0 0;
+  padding-top: 11px;
+  border-top: 1px solid var(--rule-soft);
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.sev { font-weight: 700; }
+.sev-high { color: var(--alarm); }
+.sev-medium { color: var(--amber); }
+.sev-low { color: var(--sea); }
+
+.note {
+  margin: 32px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--ink-faint);
+  line-height: 1.75;
+}
+
+.note strong { color: var(--ink-dim); }
+
+.empty { color: var(--ink-faint); font-size: 14px; }
+
+/* Print */
+
+@page {
+  size: A4;
+  margin: 16mm 14mm 18mm;
+}
+
+@media print {
+  html, body { background: #fff; font-size: 10.5pt; }
+  .page { max-width: none; padding: 0; min-height: 0; }
+  .toolbar { display: none; }
+
+  /* Ribbons are the one place colour carries meaning, so keep them. */
+  .ribbon { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .recommendation, .summary { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  .findings > li { break-inside: avoid; page-break-inside: avoid; }
+  h2.section { break-after: avoid; }
+  a { color: inherit; text-decoration: none; }
+}

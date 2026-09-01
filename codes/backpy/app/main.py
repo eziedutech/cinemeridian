@@ -312,6 +312,60 @@ async def findings(edit_version: str = "v14", scene_id: str = "sc14") -> dict[st
     return {"edit_version": edit_version, "scene_id": scene_id, "result": result}
 
 
+#: Frames rendered per take by scripts/composite_variants.py. The first is the
+#: take's head, the last is its tail, and a cut joins one shot's tail to the
+#: next shot's head.
+FRAMES_PER_TAKE = 8
+
+
+@app.get("/api/takes")
+async def takes(scene_id: str = "sc14", edit_version: str = "v14") -> dict[str, Any]:
+    """Every take that was shot, with the frames sampled from each.
+
+    The console shows these as a library rather than as a cut, because a take
+    exists whether or not it made the edit. Which ones did make it, and where,
+    comes back as `cut_position` - null for the ones that were shot and not
+    used, which is most of them, as on any production.
+    """
+    toolset = app.state.clickhouse_toolset
+    tools = {tool.name: tool for tool in await toolset.get_tools()}
+    query_tool = tools.get("run_query")
+    if query_tool is None:
+        raise HTTPException(status_code=503, detail="run_query unavailable over MCP")
+
+    sql = (
+        # Alias every column. ClickHouse returns a qualified name for anything
+        # ambiguous across the joins, so `take_id` comes back as `t.take_id`
+        # and the client sees a field it was not expecting.
+        "SELECT t.take_id AS take_id, t.setup_id AS setup_id, "
+        "t.take_number AS take_number, t.shoot_day AS shoot_day, "
+        "toString(t.started_at) AS started_at, toString(t.ended_at) AS ended_at, "
+        "t.camera_heading_deg AS camera_heading_deg, t.lens_mm AS lens_mm, "
+        "toString(t.source_kind) AS source_kind, "
+        "t.slate_verified AS slate_verified, e.cut_position AS cut_position, "
+        "round(eph.sun_azimuth_deg, 2) AS sun_azimuth_deg, "
+        "round(eph.sun_elevation_deg, 2) AS sun_elevation_deg, "
+        "round(eph.shadow_len_ratio, 2) AS shadow_len_ratio, "
+        "eph.daylight_color_temp_k AS daylight_color_temp_k "
+        "FROM cinemeridian.takes t "
+        "LEFT JOIN cinemeridian.edit_decisions e "
+        f"       ON e.take_id = t.take_id AND e.edit_version = '{edit_version}' "
+        "LEFT JOIN cinemeridian.ephemeris eph "
+        "       ON eph.production_id = t.production_id "
+        "      AND eph.ts = toStartOfMinute(toDateTime(t.started_at)) "
+        f"WHERE t.scene_id = '{scene_id}' "
+        "ORDER BY t.setup_id, t.take_number"
+    )
+    result = await query_tool.run_async(args={"query": sql}, tool_context=None)
+    return {
+        "scene_id": scene_id,
+        "edit_version": edit_version,
+        "frames_per_take": FRAMES_PER_TAKE,
+        "bucket": get_settings().gcs_asset_bucket,
+        "result": result,
+    }
+
+
 @app.get("/api/frame")
 async def frame(uri: str):
     """Stream one frame out of GCS.

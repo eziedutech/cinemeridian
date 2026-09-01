@@ -54,6 +54,16 @@ def frame_uri(bucket: str, relative: Path) -> str:
     return f"gs://{bucket}/frames/{relative.as_posix()}"
 
 
+def role_from_uri(uri: str) -> str:
+    """Head or tail, read back off the frame path.
+
+    frame_observations has no role column, and adding one would mean a schema
+    change for something the path already says. f000 is a take's first moment;
+    the highest-numbered frame is its last.
+    """
+    return "head" if uri.rstrip().endswith("f000.jpg") else "tail"
+
+
 def observe_with_retry(path: Path, settings) -> list[dict] | None:
     """Observe one frame, surviving a transient network failure."""
     last: Exception | None = None
@@ -93,9 +103,28 @@ def main() -> int:
 
     truth = json.loads((scene_root / "frame_truth.json").read_text(encoding="utf-8"))
     beats = {row["take_id"]: row["story_beat"] for row in truth}
-    captured = {row["take_id"]: row["captured_at"] for row in truth}
+    # A take's head and its tail are ninety-five seconds apart, and the whole
+    # point of sampling both is that they are different moments. Keyed by role
+    # so each observation carries the time it was actually taken at.
+    captured = {
+        (row["take_id"], row["frame_role"]): row["captured_at"]
+        for row in truth
+        if row["frame_role"] in ("head", "tail")
+    }
 
-    frames = sorted(scene_root.rglob("f*.jpg"))
+    # Only the head and the tail. The frames between are for the console to
+    # scrub through; spending a vision call on each would double the cost to
+    # measure a difference smaller than the measurement error.
+    everything = sorted(scene_root.rglob("f*.jpg"))
+    by_take: dict[Path, list[Path]] = {}
+    for path in everything:
+        by_take.setdefault(path.parent, []).append(path)
+    frames = []
+    for take_dir in sorted(by_take):
+        group = sorted(by_take[take_dir])
+        frames.append(group[0])
+        if len(group) > 1:
+            frames.append(group[-1])
     if args.limit:
         frames = frames[: args.limit]
     if not frames:
@@ -114,7 +143,7 @@ def main() -> int:
         with out_path.open(newline="", encoding="utf-8") as fh:
             for row in csv.DictReader(fh):
                 rows.append(row)
-                done.add(row["take_id"])
+                done.add((row["take_id"], role_from_uri(row["frame_uri"])))
         if done:
             print(f"Resuming: {len(done)} takes already observed\n")
 
@@ -125,9 +154,12 @@ def main() -> int:
         # frames/sc14/su01/t03/f000.jpg -> take id sc14_su01_t03
         setup_id, take_dir = relative.parts[1], relative.parts[2]
         take_id = f"{SCENE_ID}_{setup_id}_{take_dir}"
+        # The two ends of a take carry different measurements, so they need
+        # different ids and different timestamps.
+        role = "head" if path.name == sorted(p.name for p in path.parent.glob("f*.jpg"))[0] else "tail"
 
-        if take_id in done:
-            print(f"  [{index:>2}/{len(frames)}] {take_id:<20} already done")
+        if (take_id, role) in done:
+            print(f"  [{index:>2}/{len(frames)}] {take_id:<20} {role:<4} already done")
             continue
 
         observations = observe_with_retry(path, settings)
@@ -148,12 +180,12 @@ def main() -> int:
             rows.append(
                 {
                     "obs_id": hashlib.sha1(
-                        f"{take_id}/{entity}/{attribute}".encode()
+                        f"{take_id}/{role}/{entity}/{attribute}".encode()
                     ).hexdigest()[:16],
                     "take_id": take_id,
                     "scene_id": SCENE_ID,
                     "story_beat": beats.get(take_id, 0),
-                    "frame_ts": captured.get(take_id, "2026-12-03 21:00:00") + ".000",
+                    "frame_ts": captured.get((take_id, role), "2026-12-03 21:00:00") + ".000",
                     "frame_uri": uri,
                     "entity": entity,
                     "attribute": attribute,
@@ -169,7 +201,7 @@ def main() -> int:
             )
             kept += 1
 
-        print(f"  [{index:>2}/{len(frames)}] {take_id:<20} {kept:>2} measurements")
+        print(f"  [{index:>2}/{len(frames)}] {take_id:<20} {role:<4} {kept:>2} measurements")
 
         # Flush after every frame. Whatever happens next, the work is on disk.
         with out_path.open("w", newline="", encoding="utf-8") as fh:

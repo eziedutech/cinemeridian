@@ -9,20 +9,26 @@ import { frameUrl } from "~/lib/api";
  * stored on the finding, so a finding stays about the discrepancy and not
  * about where a file happens to live.
  */
-export function frameUriForTake(bucket: string, takeId: string): string | null {
+export function frameUriForTake(
+  bucket: string,
+  takeId: string,
+  frameIndex = 0,
+): string | null {
   const parts = takeId.split("_");
   if (parts.length !== 3) return null;
   const [scene, setup, take] = parts;
-  return `gs://${bucket}/frames/${scene}/${setup}/${take}/f000.jpg`;
+  const frame = `f${String(frameIndex).padStart(3, "0")}.jpg`;
+  return `gs://${bucket}/frames/${scene}/${setup}/${take}/${frame}`;
 }
 
 type Props = {
   finding: Finding | null;
   apiBase: string;
   bucket: string;
+  framesPerTake: number;
 };
 
-export function EvidencePair({ finding, apiBase, bucket }: Props) {
+export function EvidencePair({ finding, apiBase, bucket, framesPerTake }: Props) {
   if (!finding) {
     return (
       <div className="panel">
@@ -32,16 +38,20 @@ export function EvidencePair({ finding, apiBase, bucket }: Props) {
     );
   }
 
-  const uriA = frameUriForTake(bucket, finding.take_a);
-  const uriB = finding.take_b ? frameUriForTake(bucket, finding.take_b) : null;
+  // The two frames that actually meet on screen: the outgoing shot's last
+  // moment and the incoming shot's first. Comparing a take's head against
+  // another take's head would be comparing frames that never touch.
+  const uriA = frameUriForTake(bucket, finding.take_a, framesPerTake - 1);
+  const uriB = finding.take_b ? frameUriForTake(bucket, finding.take_b, 0) : null;
 
   return (
     <div className="panel">
       <h2>Evidence</h2>
       <p className="hint">
-        The two frames as they are cut against each other. Both are synthetic -
-        the plate came from a generative model, and every variable in dispute
-        was composited on at a value we chose.
+        The last moment of the outgoing shot beside the first moment of the
+        incoming one, which is what an audience actually sees at the cut. Both
+        are synthetic: the plate came from a generative model, and every
+        variable in dispute was composited on at a value we chose.
       </p>
 
       <div className="evidence">
@@ -54,7 +64,7 @@ export function EvidencePair({ finding, apiBase, bucket }: Props) {
           <figcaption>
             {finding.take_a}
             <br />
-            outgoing
+            outgoing, tail frame
           </figcaption>
         </figure>
 

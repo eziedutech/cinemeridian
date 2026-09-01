@@ -75,6 +75,8 @@ class FrameSpec:
 
     take_id: str
     setup_id: str
+    frame_index: int             # 0 is the head of the take, the last is its tail
+    frame_role: str              # "head", "tail", or "mid"
     story_beat: int
     captured_at: str            # true capture time, UTC
     camera_heading_deg: float
@@ -284,6 +286,21 @@ def render(spec: FrameSpec, out_path: Path) -> bool:
     return fits
 
 
+#: Frames rendered across each take, from its first moment to its last.
+#:
+#: Only the two ends are analysed, and they are the right two: a cut joins the
+#: *tail* of the outgoing shot to the *head* of the incoming one, so those are
+#: the moments that actually sit next to each other on screen.
+#:
+#: Within a single take the sun barely moves - measured here, at most a third
+#: of a figure-height of shadow across ninety-five seconds, and a hundredth of
+#: that when the sun is high. The frames in between are for scrubbing and for
+#: picking the exact head or tail by eye, not for analysis; claiming they show
+#: drift would be claiming a precision the measurement does not have. The drift
+#: worth finding lives *between* takes shot hours or days apart.
+FRAMES_PER_TAKE = 8
+
+
 def spec_for_take(
     take_id: str,
     setup_id: str,
@@ -291,6 +308,8 @@ def spec_for_take(
     captured_at: datetime,
     camera_heading_deg: float,
     footprint_count: int,
+    frame_index: int = 0,
+    frame_role: str = "head",
 ) -> FrameSpec:
     """Derive every visual variable from the physics of the capture time.
 
@@ -303,6 +322,8 @@ def spec_for_take(
     return FrameSpec(
         take_id=take_id,
         setup_id=setup_id,
+        frame_index=frame_index,
+        frame_role=frame_role,
         story_beat=story_beat,
         captured_at=captured_at.strftime("%Y-%m-%d %H:%M:%S"),
         camera_heading_deg=camera_heading_deg,
@@ -385,29 +406,43 @@ def render_all(out_root: Path) -> int:
             skipped.append(setup_id)
             continue
         for take_number in range(1, count + 1):
-            captured = _utc(day_index, start_local) + timedelta(
+            started = _utc(day_index, start_local) + timedelta(
                 seconds=(take_number - 1) * (TAKE_LENGTH_S + TURNAROUND_S)
             )
             take_id = f"{SCENE_ID}_{setup_id}_t{take_number:02d}"
-            spec = spec_for_take(
-                take_id=take_id,
-                setup_id=setup_id,
-                story_beat=beats[setup_id],
-                captured_at=captured,
-                camera_heading_deg=headings[setup_id],
-                footprint_count=FOOTPRINTS_BY_SETUP[setup_id],
-            )
-            fits = render(
-                spec,
-                out_root / SCENE_ID / setup_id / f"t{take_number:02d}" / "f000.jpg",
-            )
-            specs.append(replace(spec, shadow_fits_in_frame=fits))
+            take_dir = out_root / SCENE_ID / setup_id / f"t{take_number:02d}"
+
+            # Walk the take from its first moment to its last.
+            for index in range(FRAMES_PER_TAKE):
+                offset = TAKE_LENGTH_S * index / (FRAMES_PER_TAKE - 1)
+                role = (
+                    "head" if index == 0
+                    else "tail" if index == FRAMES_PER_TAKE - 1
+                    else "mid"
+                )
+                spec = spec_for_take(
+                    take_id=take_id,
+                    setup_id=setup_id,
+                    story_beat=beats[setup_id],
+                    captured_at=started + timedelta(seconds=offset),
+                    camera_heading_deg=headings[setup_id],
+                    footprint_count=FOOTPRINTS_BY_SETUP[setup_id],
+                    frame_index=index,
+                    frame_role=role,
+                )
+                fits = render(spec, take_dir / f"f{index:03d}.jpg")
+                specs.append(replace(spec, shadow_fits_in_frame=fits))
 
     (out_root / SCENE_ID / "frame_truth.json").write_text(
         json.dumps([asdict(s) for s in specs], indent=2) + "\n", encoding="utf-8"
     )
 
-    print(f"rendered {len(specs)} frames into {out_root.relative_to(ROOT)}/{SCENE_ID}")
+    takes = len({spec.take_id for spec in specs})
+    print(
+        f"rendered {len(specs)} frames across {takes} takes "
+        f"({FRAMES_PER_TAKE} per take, head to tail) "
+        f"into {out_root.relative_to(ROOT)}/{SCENE_ID}"
+    )
     if skipped:
         print(f"  skipped (no plate yet): {', '.join(skipped)}")
     print(f"  answer key: {(out_root / SCENE_ID / 'frame_truth.json').relative_to(ROOT)}")

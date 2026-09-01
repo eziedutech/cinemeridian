@@ -67,7 +67,7 @@ export async function fetchFindings(
  * Finding the columns/rows object and rebuilding records from it is the one
  * approach that survives both shapes.
  */
-function parseFindings(result: unknown): Finding[] {
+export function parseRows<T>(result: unknown): T[] {
   const raw = typeof result === "string" ? result : JSON.stringify(result ?? "");
   const text = raw.replace(/\\"/g, '"');
 
@@ -88,8 +88,12 @@ function parseFindings(result: unknown): Finding[] {
     payload.columns.forEach((column, index) => {
       record[column] = row[index];
     });
-    return record as unknown as Finding;
+    return record as T;
   });
+}
+
+function parseFindings(result: unknown): Finding[] {
+  return parseRows<Finding>(result);
 }
 
 export function severityRank(severity: string): number {

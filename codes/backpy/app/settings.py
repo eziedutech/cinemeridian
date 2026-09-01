@@ -62,8 +62,9 @@ def _require(key: str) -> str:
     value = os.environ.get(key, "").strip()
     if not value:
         raise ConfigError(
-            f"{key} is not set. Locally, fill in credentials/*.env "
-            f"(see Docs/SETUP-KREDENSIAL.md); on Cloud Run, wire it to Secret Manager."
+            f"{key} is not set. Locally, copy .env.example into "
+            f"credentials/gcp.env and credentials/clickhouse.env and fill it in; "
+            f"on Cloud Run, wire it to Secret Manager."
         )
     if value.startswith("xxxx") or value in {"changeme", "TODO"}:
         raise ConfigError(f"{key} still holds a placeholder value ({value!r}).")

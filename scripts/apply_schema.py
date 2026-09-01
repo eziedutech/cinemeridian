@@ -46,9 +46,15 @@ def load_credentials() -> dict[str, str]:
     for key in ("CLICKHOUSE_HOST", "CLICKHOUSE_PORT", "CLICKHOUSE_USER", "CLICKHOUSE_PASSWORD"):
         env[key] = os.environ.get(key) or env.get(key, "")
     if not env["CLICKHOUSE_HOST"] or env["CLICKHOUSE_HOST"].startswith("xxxx"):
-        sys.exit("CLICKHOUSE_HOST is missing or still a placeholder. See Docs/SETUP-KREDENSIAL.md")
+        sys.exit(
+            "CLICKHOUSE_HOST is missing or still a placeholder. "
+            "Copy .env.example into credentials/clickhouse.env and fill it in."
+        )
     if not env["CLICKHOUSE_PASSWORD"]:
-        sys.exit("CLICKHOUSE_PASSWORD is empty. See Docs/SETUP-KREDENSIAL.md")
+        sys.exit(
+            "CLICKHOUSE_PASSWORD is empty. "
+            "Copy .env.example into credentials/clickhouse.env and fill it in."
+        )
     return env
 
 

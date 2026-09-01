@@ -62,7 +62,9 @@ SHOOT_END_LOCAL_H = 18
 #: January, five weeks later. Move the same shoot to early September and the
 #: mirror date lands in April: seven months out, and the pickup question has no
 #: usable answer at all. Shooting near a solstice is what makes a pickup window
-#: exist. See agents/ATURAN-MAIN.md, entry of 1 Sep 2026.
+#: This was found the hard way: with September dates the match-window query
+#: returned nothing at all, and the best the sun ever came was 5.7 degrees off,
+#: growing every day.
 SHOOT_DAYS = [
     date(2026, 12, 3),
     date(2026, 12, 4),

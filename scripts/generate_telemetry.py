@@ -55,16 +55,25 @@ SHOOT_END_LOCAL_H = 18
 
 #: Non-contiguous on purpose. The scene's coverage is split across a fortnight,
 #: which is exactly the gap that defeats a human eye.
+#:
+#: The dates straddle the December solstice, and that is not decoration. Sun
+#: geometry repeats when the declination repeats, and declination is symmetric
+#: about a solstice — so a shoot in early December finds its match in early
+#: January, five weeks later. Move the same shoot to early September and the
+#: mirror date lands in April: seven months out, and the pickup question has no
+#: usable answer at all. Shooting near a solstice is what makes a pickup window
+#: exist. See agents/ATURAN-MAIN.md, entry of 1 Sep 2026.
 SHOOT_DAYS = [
-    date(2026, 9, 3),
-    date(2026, 9, 4),
-    date(2026, 9, 5),
-    date(2026, 9, 16),
-    date(2026, 9, 17),
+    date(2026, 12, 3),
+    date(2026, 12, 4),
+    date(2026, 12, 5),
+    date(2026, 12, 14),
+    date(2026, 12, 15),
 ]
 
 #: The pickup window the agent searches when asked "when will this repeat?".
-PICKUP_WINDOW_END = date(2026, 10, 31)
+#: Far enough past the solstice to contain the mirror of every shoot day.
+PICKUP_WINDOW_END = date(2027, 2, 15)
 
 STATIONS = [
     # station_id, metres above sand, exposure factor (1.0 = fully exposed)

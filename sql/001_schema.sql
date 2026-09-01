@@ -4,13 +4,11 @@
 -- answer at demo speed, so the ORDER BY keys are the design, not decoration:
 -- every hot query either scans a contiguous range or self-joins on a prefix.
 --
--- Apply with:  clickhouse client --queries-file sql/001_schema.sql
+-- Apply with:  python scripts/apply_schema.py
 -- (Setup only. At runtime the agent reaches ClickHouse through the
 -- mcp-clickhouse MCP server, never through a direct client.)
 
 CREATE DATABASE IF NOT EXISTS cinemeridian;
-
-USE cinemeridian;
 
 
 -- 1. Capture metadata ────────────────────────────────────────────────────────
@@ -18,7 +16,7 @@ USE cinemeridian;
 -- take re-ingested with a fixed timestamp must supersede the wrong one rather
 -- than sit beside it.
 
-CREATE TABLE IF NOT EXISTS takes
+CREATE TABLE IF NOT EXISTS cinemeridian.takes
 (
     take_id             String,
     production_id       String,
@@ -45,7 +43,7 @@ ORDER BY (production_id, scene_id, take_id);
 -- day so a single shoot day drops out of the scan, ordered by station then
 -- time because every read is "this station, this window".
 
-CREATE TABLE IF NOT EXISTS env_telemetry
+CREATE TABLE IF NOT EXISTS cinemeridian.env_telemetry
 (
     ts               DateTime64(3),
     production_id    String,
@@ -72,7 +70,7 @@ ORDER BY (production_id, station_id, ts);
 -- Note: sun and moon are real astronomy. tide_level_m is a SIMULATION and is
 -- labelled as such everywhere it is shown.
 
-CREATE TABLE IF NOT EXISTS ephemeris
+CREATE TABLE IF NOT EXISTS cinemeridian.ephemeris
 (
     ts                     DateTime,
     production_id          String,
@@ -99,7 +97,7 @@ ORDER BY (production_id, ts);
 -- observations of the *same story moment* across *different takes*, so both
 -- sides of that self-join read a contiguous range.
 
-CREATE TABLE IF NOT EXISTS frame_observations
+CREATE TABLE IF NOT EXISTS cinemeridian.frame_observations
 (
     obs_id              String,
     take_id             String,
@@ -130,7 +128,7 @@ ORDER BY (scene_id, story_beat, entity, attribute, take_id);
 -- problem combinatorial: the same footage produces different adjacent pairs
 -- in every edit version, so every version needs its own hunt.
 
-CREATE TABLE IF NOT EXISTS edit_decisions
+CREATE TABLE IF NOT EXISTS cinemeridian.edit_decisions
 (
     edit_version   String,
     cut_position   UInt16,
@@ -148,7 +146,7 @@ ORDER BY (edit_version, cut_position);
 -- predecessor. core_hours_est is what makes an intercepted mismatch quotable
 -- in the only unit a studio cares about.
 
-CREATE TABLE IF NOT EXISTS shot_render_config
+CREATE TABLE IF NOT EXISTS cinemeridian.shot_render_config
 (
     shot_id                  String,
     take_id                  String,
@@ -175,7 +173,7 @@ ORDER BY (shot_id, render_version);
 -- Gemini ruled, what to do about it. human_reviewed starts at 0 and only a
 -- person moves it — the agent recommends and never acts.
 
-CREATE TABLE IF NOT EXISTS continuity_findings
+CREATE TABLE IF NOT EXISTS cinemeridian.continuity_findings
 (
     finding_id            String,
     created_at            DateTime64(3),

@@ -143,11 +143,21 @@ async def main() -> int:
         try:
             await stage_two()
         except Exception as exc:  # noqa: BLE001 - the message is the point
-            if "credential" in str(exc).lower() or "DefaultCredentials" in str(exc):
+            text = str(exc).lower()
+            # ADC is a separate login from `gcloud auth login`, and having
+            # already done the latter is exactly what makes this surprising.
+            if any(
+                marker in text
+                for marker in ("credential", "reauthentication", "refresh", "unauthenticated")
+            ):
                 print(
-                    "\n  SKIPPED: no Vertex AI credentials.\n"
-                    "  Run: gcloud auth application-default login\n"
-                    f"  ({exc})"
+                    "\n  SKIPPED: Vertex AI credentials are missing or stale.\n"
+                    "  This is application-default credentials, a SEPARATE login\n"
+                    "  from `gcloud auth login`:\n\n"
+                    "      gcloud auth application-default login\n"
+                    "      gcloud auth application-default set-quota-project "
+                    f"{get_settings().project_id}\n\n"
+                    f"  ({type(exc).__name__}: {exc})"
                 )
                 return 0
             raise

@@ -72,23 +72,48 @@ class Settings:
     clickhouse_secure: str
     clickhouse_database: str
 
+    # The restricted user the agent runs as. Absent until
+    # scripts/create_agent_user.py has been run, in which case the agent falls
+    # back to the admin user in read-only mode.
+    agent_user: str = ""
+    agent_password: str = field(default="", repr=False)
+
     def mcp_clickhouse_env(self) -> dict[str, str]:
-        """The environment block for the mcp-clickhouse stdio subprocess."""
+        """The environment block for the mcp-clickhouse stdio subprocess.
+
+        Two things here are deliberate and worth not undoing:
+
+        The agent connects as the restricted user when one exists. That user
+        can read the whole database but insert only into continuity_findings
+        (scripts/create_agent_user.py), so the blast radius of a bad query is
+        a grant, not a flag.
+
+        Write access is enabled because the agent records its findings through
+        the same MCP server it reads with. Enabling it for the *default* user
+        would hand a language model DROP TABLE, which is why the restricted
+        user matters.
+        """
         return {
             "CLICKHOUSE_HOST": self.clickhouse_host,
             "CLICKHOUSE_PORT": self.clickhouse_port,
-            "CLICKHOUSE_USER": self.clickhouse_user,
-            "CLICKHOUSE_PASSWORD": self.clickhouse_password,
+            "CLICKHOUSE_USER": self.agent_user or self.clickhouse_user,
+            "CLICKHOUSE_PASSWORD": self.agent_password or self.clickhouse_password,
             "CLICKHOUSE_SECURE": self.clickhouse_secure,
             "CLICKHOUSE_DATABASE": self.clickhouse_database,
+            "CLICKHOUSE_ALLOW_WRITE_ACCESS": "1" if self.agent_user else "0",
         }
+
+    @property
+    def uses_restricted_user(self) -> bool:
+        return bool(self.agent_user)
 
     def __str__(self) -> str:  # never let the password reach a log line
         return (
             f"Settings(project={self.project_id}, location={self.location}, "
             f"model={self.model}, bucket={self.gcs_asset_bucket}, "
-            f"clickhouse={self.clickhouse_user}@{self.clickhouse_host}:{self.clickhouse_port}"
-            f"/{self.clickhouse_database})"
+            f"clickhouse={self.agent_user or self.clickhouse_user}@{self.clickhouse_host}"
+            f":{self.clickhouse_port}/{self.clickhouse_database}"
+            f"{' [restricted]' if self.agent_user else ' [admin, read-only]'})"
         )
 
 
@@ -107,4 +132,6 @@ def get_settings() -> Settings:
         clickhouse_password=_require("CLICKHOUSE_PASSWORD"),
         clickhouse_secure=os.environ.get("CLICKHOUSE_SECURE", "true"),
         clickhouse_database=os.environ.get("CLICKHOUSE_DATABASE", "cinemeridian"),
+        agent_user=os.environ.get("CLICKHOUSE_AGENT_USER", "").strip(),
+        agent_password=os.environ.get("CLICKHOUSE_AGENT_PASSWORD", "").strip(),
     )

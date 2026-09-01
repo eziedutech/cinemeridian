@@ -2,9 +2,23 @@
   "_note": "Two-shot, both figures full length on open sand - the best setup in the scene for reading a cast shadow. Anchors measured by hand.",
   "plate": "su06.png",
   "horizon_y": 0.345,
-  "ground": { "foreshorten": 0.50 },
+  "ground": {
+    "foreshorten": 0.5,
+    "sand_bottom_y": 0.85,
+    "_note": "sand_bottom_y: below this the frame is foreground dune grass, nearer the camera than the figures, so no cast shadow of theirs can lie across it."
+  },
   "figures": [
-    { "label": "left",  "feet_x": 0.385, "feet_y": 0.845, "head_y": 0.375 },
-    { "label": "right", "feet_x": 0.570, "feet_y": 0.795, "head_y": 0.395 }
+    {
+      "label": "left",
+      "feet_x": 0.385,
+      "feet_y": 0.845,
+      "head_y": 0.375
+    },
+    {
+      "label": "right",
+      "feet_x": 0.57,
+      "feet_y": 0.795,
+      "head_y": 0.395
+    }
   ]
 }

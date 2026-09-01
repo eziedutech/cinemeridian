@@ -42,7 +42,7 @@ export default function Console() {
 
     try {
       // SSE over POST, so the request carries which cut to review. EventSource
-      // cannot do that — it is GET only — which is why this reads the stream
+      // cannot do that - it is GET only - which is why this reads the stream
       // by hand instead.
       const response = await fetch(`${apiBase}/api/analyze`, {
         method: "POST",
@@ -108,7 +108,7 @@ export default function Console() {
         <div className="scene-line">
           <strong>The Tide Line</strong> · scene {SCENE_ID} · 8 setups, 30 takes
           <br />
-          8.75°N 83.5°W · shot 3–15 December 2026
+          8.75°N 83.5°W · shot 3-15 December 2026
         </div>
       </header>
 
@@ -167,8 +167,8 @@ export default function Console() {
       <footer className="disclosure">
         <strong>What is real here.</strong> Sun and moon positions are computed
         with the NOAA solar position algorithm and are real astronomy. The tide
-        and the weather telemetry are <strong>simulated</strong> — two harmonic
-        constituents and a physical afternoon model — and are not a forecast for
+        and the weather telemetry are <strong>simulated</strong> - two harmonic
+        constituents and a physical afternoon model - and are not a forecast for
         any place. All footage is synthetic and self-made; no film or broadcast
         material is used. The agent only ever recommends: it does not modify the
         edit, submit a render, or mark its own findings reviewed.

@@ -6,7 +6,7 @@ requirement, so it verifies the thing itself rather than a proxy for it:
 
   Stage 1  the mcp-clickhouse stdio server starts and advertises its tools
   Stage 2  the agent, driven by Gemini, calls run_query and gets rows
-           back — with the tool call and its result printed, not summarised
+           back - with the tool call and its result printed, not summarised
 
 Stage 2 needs Vertex AI credentials. Without them stage 1 still runs and says
 what is missing, because "the MCP server works but the model is unreachable"
@@ -50,7 +50,7 @@ async def stage_one() -> list[str]:
     _rule("Stage 1 - mcp-clickhouse stdio server")
     settings = get_settings()
     # Report the user the subprocess actually connects as, not the admin one
-    # in the config — they differ, and that difference is the safety boundary.
+    # in the config - they differ, and that difference is the safety boundary.
     effective_user = settings.mcp_clickhouse_env()["CLICKHOUSE_USER"]
     print(
         f"  target   {effective_user}@{settings.clickhouse_host}"

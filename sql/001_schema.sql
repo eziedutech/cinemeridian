@@ -1,4 +1,4 @@
--- CineMeridian — ClickHouse schema
+-- CineMeridian - ClickHouse schema
 --
 -- Seven tables. The shape of each one is chosen for the question it has to
 -- answer at demo speed, so the ORDER BY keys are the design, not decoration:
@@ -62,7 +62,7 @@ PARTITION BY toYYYYMMDD(ts)
 ORDER BY (production_id, station_id, ts);
 
 
--- 3. Computed ephemeris — THE GROUND TRUTH ───────────────────────────────────
+-- 3. Computed ephemeris - THE GROUND TRUTH ───────────────────────────────────
 -- Precomputed at one-minute resolution from app/ephemeris.py, for the whole
 -- production window plus the pickup window ahead of it. Because it is
 -- precomputed, "when will these conditions repeat?" is a range scan.
@@ -88,7 +88,7 @@ PARTITION BY toYYYYMM(ts)
 ORDER BY (production_id, ts);
 
 
--- 4. Perceptual observations — the pixels-to-relational bridge ───────────────
+-- 4. Perceptual observations - the pixels-to-relational bridge ───────────────
 -- Gemini's structured output, one row per (entity, attribute) per sampled
 -- frame. Entity/attribute are LowCardinality because the vocabulary is small
 -- and closed; the values are what vary.
@@ -141,7 +141,7 @@ ENGINE = MergeTree
 ORDER BY (edit_version, cut_position);
 
 
--- 6. Render and virtual-stage configuration — the CG side ────────────────────
+-- 6. Render and virtual-stage configuration - the CG side ────────────────────
 -- Replacing on submitted_at: a resubmitted render version replaces its
 -- predecessor. core_hours_est is what makes an intercepted mismatch quotable
 -- in the only unit a studio cares about.
@@ -157,7 +157,7 @@ CREATE TABLE IF NOT EXISTS cinemeridian.shot_render_config
     key_light_intensity      Float32,
     key_light_softness       Float32,
     volume_plate_id          String,     -- LED volume: the plate playing on the wall
-    volume_plate_frame       UInt32,     -- playback index — drift here breaks the background
+    volume_plate_frame       UInt32,     -- playback index - drift here breaks the background
     volume_brightness_nits   UInt16,
     asset_versions           String,     -- JSON: {"beach_tree":"v013","boat":"v004"}
     submitted_at             DateTime,
@@ -167,11 +167,11 @@ ENGINE = ReplacingMergeTree(submitted_at)
 ORDER BY (shot_id, render_version);
 
 
--- 7. Agent findings — the audit trail ────────────────────────────────────────
+-- 7. Agent findings - the audit trail ────────────────────────────────────────
 -- Written back by the agent through the same MCP server it reads with. Every
 -- row keeps the whole chain: what was observed, what physics expected, what
 -- Gemini ruled, what to do about it. human_reviewed starts at 0 and only a
--- person moves it — the agent recommends and never acts.
+-- person moves it - the agent recommends and never acts.
 
 CREATE TABLE IF NOT EXISTS cinemeridian.continuity_findings
 (

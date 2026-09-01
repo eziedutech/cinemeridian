@@ -1,7 +1,7 @@
 """Configuration, read from the environment.
 
 Deliberately stdlib-only. Every value here is either public (a region, a
-model name) or a secret that arrives through the environment — locally from
+model name) or a secret that arrives through the environment - locally from
 ``credentials/*.env``, on Cloud Run from Secret Manager. Nothing is ever read
 from a checked-in file, and nothing secret is logged.
 """
@@ -24,7 +24,7 @@ def _credentials_dir() -> Path | None:
     /app/app/settings.py, where counting parents raises IndexError and takes
     the whole service down at import time. Walking up finds it in the first
     case and finds nothing in the second, which is the correct answer for
-    both — the container gets its configuration from the environment.
+    both - the container gets its configuration from the environment.
     """
     for parent in Path(__file__).resolve().parents:
         candidate = parent / "credentials"
@@ -80,7 +80,14 @@ class Settings:
     gcs_asset_bucket: str
     model: str
 
-    # ClickHouse — consumed only as the environment handed to the
+    # Gemini 3 is served from the global endpoint and the us/eu multi-regions,
+    # not from a plain regional one. ClickHouse and the asset bucket stay in
+    # us-central1; only the model calls go to `us`, which is the closest of the
+    # options. Probing a Gemini 3 model at us-central1 returns a 404 that reads
+    # like a permissions problem and is not one.
+    gemini_location: str
+
+    # ClickHouse - consumed only as the environment handed to the
     # mcp-clickhouse subprocess. The application never opens its own
     # connection; every runtime query goes through the MCP tools.
     clickhouse_host: str
@@ -132,7 +139,7 @@ class Settings:
     def __str__(self) -> str:  # never let the password reach a log line
         return (
             f"Settings(project={self.project_id}, location={self.location}, "
-            f"model={self.model}, bucket={self.gcs_asset_bucket}, "
+            f"model={self.model}@{self.gemini_location}, bucket={self.gcs_asset_bucket}, "
             f"clickhouse={self.agent_user or self.clickhouse_user}@{self.clickhouse_host}"
             f":{self.clickhouse_port}/{self.clickhouse_database}"
             f"{' [restricted]' if self.agent_user else ' [admin, read-only]'})"
@@ -147,7 +154,8 @@ def get_settings() -> Settings:
         location=os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1"),
         use_vertexai=os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "true").lower() == "true",
         gcs_asset_bucket=_require("GCS_ASSET_BUCKET"),
-        model=os.environ.get("CINEMERIDIAN_MODEL", "gemini-2.5-flash"),
+        model=os.environ.get("CINEMERIDIAN_MODEL", "gemini-3.7-flash"),
+        gemini_location=os.environ.get("CINEMERIDIAN_GEMINI_LOCATION", "us"),
         clickhouse_host=_require("CLICKHOUSE_HOST"),
         clickhouse_port=os.environ.get("CLICKHOUSE_PORT", "8443"),
         clickhouse_user=os.environ.get("CLICKHOUSE_USER", "default"),

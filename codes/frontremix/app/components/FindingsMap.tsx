@@ -38,7 +38,7 @@ export function FindingsMap({ findings, selectedId, onSelect }: Props) {
       <h2>Findings</h2>
       <p className="hint">
         {findings.length} recorded, {visible} judged visible in the cut. Every
-        one is waiting on a human — the agent recommends and never touches the
+        one is waiting on a human - the agent recommends and never touches the
         edit.
       </p>
 

@@ -58,7 +58,7 @@ SHOOT_END_LOCAL_H = 18
 #:
 #: The dates straddle the December solstice, and that is not decoration. Sun
 #: geometry repeats when the declination repeats, and declination is symmetric
-#: about a solstice — so a shoot in early December finds its match in early
+#: about a solstice - so a shoot in early December finds its match in early
 #: January, five weeks later. Move the same shoot to early September and the
 #: mirror date lands in April: seven months out, and the pickup question has no
 #: usable answer at all. Shooting near a solstice is what makes a pickup window
@@ -118,7 +118,7 @@ def _temperature(local_hours: float, cloud_pct: float, rng: random.Random) -> fl
 
 
 def _dew_point(temp_c: float, humidity_pct: float) -> float:
-    """Magnus approximation — the same relation a real station reports."""
+    """Magnus approximation - the same relation a real station reports."""
     h = max(1.0, min(100.0, humidity_pct))
     a, b = 17.62, 243.12
     gamma = math.log(h / 100.0) + (a * temp_c) / (b + temp_c)

@@ -1,0 +1,172 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 1060" width="1240" height="1060" role="img" aria-labelledby="ttl dsc">
+  <title id="ttl">CineMeridian pipeline</title>
+  <desc id="dsc">Three inputs land in ClickHouse: Gemini vision turns sampled frames into structured observations, ephemeris.py computes sun and moon positions, and the production metadata carries takes, edit decisions and render configs. Every runtime query crosses the mcp-clickhouse boundary. Below that, the fast lane runs on every edit version: ClickHouse ranks the contradictions, the agent decides which are worth attention, Gemini adjudicates the survivors visually, physics prescribes the fix, and each finding is written back for a human to review.</desc>
+
+  <!--
+    Self-contained on purpose: the card carries its own background, so it reads
+    the same on a light or a dark GitHub theme without needing two files and a
+    prefers-color-scheme switch that GitHub's own theme setting does not always
+    follow anyway.
+  -->
+
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7d7970"/>
+    </marker>
+    <style>
+      .box    { fill: #1b1d23; stroke: #30343d; stroke-width: 1.5; }
+      .sand   { fill: #1b1d23; stroke: #c8a97e; stroke-width: 1.75; }
+      .sea    { fill: #1b1d23; stroke: #6fa5b8; stroke-width: 1.75; }
+      .mcp    { fill: #191b21; stroke: #c8a97e; stroke-width: 1.5; stroke-dasharray: 7 5; }
+      .hair   { fill: none; stroke: #30343d; stroke-width: 1; }
+      .h      { fill: #e8e6e1; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif; font-size: 25px; font-weight: 600; }
+      .lane   { fill: #c8a97e; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif; font-size: 13.5px; font-weight: 700; }
+      .t      { fill: #e8e6e1; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif; font-size: 16.5px; font-weight: 600; }
+      .m      { fill: #9a968e; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+      .n      { fill: #8b877f; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif; font-size: 13px; }
+      .i      { fill: #7d7970; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif; font-size: 12.5px; font-style: italic; }
+      .num    { fill: #c8a97e; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; font-weight: 700; }
+      .line   { stroke: #7d7970; stroke-width: 1.75; fill: none; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1240" height="1060" rx="14" fill="#14151a"/>
+
+  <text class="h" x="44" y="52">How a cut gets checked</text>
+  <text class="i" x="44" y="76">Vision turns pixels into facts. The database does the part no person can do.</text>
+  <line class="hair" x1="44" y1="96" x2="1196" y2="96"/>
+
+  <!-- Slow lane -->
+
+  <text class="lane" x="44" y="128">Slow lane: once at ingest, like the overnight pass after a shoot day</text>
+
+  <!-- perception -->
+  <rect class="sea" x="44" y="146" width="236" height="76" rx="8"/>
+  <text class="t" x="162" y="176" text-anchor="middle">30 sampled frames</text>
+  <text class="m" x="162" y="198" text-anchor="middle">gs://…/sc14/su07/t02</text>
+  <text class="i" x="162" y="214" text-anchor="middle">synthetic, self-made</text>
+
+  <line class="line" x1="282" y1="184" x2="326" y2="184" marker-end="url(#a)"/>
+
+  <rect class="sea" x="334" y="146" width="300" height="76" rx="8"/>
+  <text class="t" x="484" y="176" text-anchor="middle">observe_frame()</text>
+  <text class="m" x="484" y="198" text-anchor="middle">gemini-3.7-flash · response_schema</text>
+  <text class="i" x="484" y="214" text-anchor="middle">measurements, never prose</text>
+
+  <line class="line" x1="636" y1="184" x2="680" y2="184" marker-end="url(#a)"/>
+
+  <rect class="box" x="688" y="146" width="212" height="76" rx="8"/>
+  <text class="t" x="794" y="176" text-anchor="middle">observations</text>
+  <text class="m" x="794" y="198" text-anchor="middle">122 rows</text>
+  <text class="i" x="794" y="214" text-anchor="middle">shadow, prints, warmth</text>
+
+  <!-- physics -->
+  <rect class="box" x="44" y="246" width="236" height="76" rx="8"/>
+  <text class="t" x="162" y="276" text-anchor="middle">ephemeris.py</text>
+  <text class="m" x="162" y="298" text-anchor="middle">NOAA solar position</text>
+  <text class="i" x="162" y="314" text-anchor="middle">pure maths, no deps</text>
+
+  <line class="line" x1="282" y1="284" x2="680" y2="284" marker-end="url(#a)"/>
+  <text class="i" x="484" y="276" text-anchor="middle">precomputed by the minute, so "when does this repeat?" is a range scan</text>
+
+  <rect class="box" x="688" y="246" width="212" height="76" rx="8"/>
+  <text class="t" x="794" y="276" text-anchor="middle">ephemeris</text>
+  <text class="m" x="794" y="298" text-anchor="middle">108,000 rows</text>
+  <text class="i" x="794" y="314" text-anchor="middle">the ground truth</text>
+
+  <!-- production metadata -->
+  <rect class="box" x="44" y="346" width="236" height="76" rx="8"/>
+  <text class="t" x="162" y="376" text-anchor="middle">the production</text>
+  <text class="m" x="162" y="398" text-anchor="middle">8 setups · 30 takes</text>
+  <text class="i" x="162" y="414" text-anchor="middle">2 edit versions</text>
+
+  <line class="line" x1="282" y1="384" x2="680" y2="384" marker-end="url(#a)"/>
+
+  <rect class="box" x="688" y="346" width="212" height="76" rx="8"/>
+  <text class="t" x="794" y="372" text-anchor="middle">takes · edit_decisions</text>
+  <text class="t" x="794" y="394" text-anchor="middle">render_config · telemetry</text>
+  <text class="m" x="794" y="414" text-anchor="middle">270,000 station readings</text>
+
+  <!-- ClickHouse column -->
+  <rect class="sand" x="948" y="146" width="248" height="276" rx="10"/>
+  <text class="t" x="1072" y="182" text-anchor="middle">ClickHouse Cloud</text>
+  <text class="i" x="1072" y="204" text-anchor="middle">7 tables, us-central1</text>
+  <line class="hair" x1="972" y1="220" x2="1172" y2="220"/>
+  <text class="m" x="972" y="248">ORDER BY keys chosen</text>
+  <text class="m" x="972" y="268">so the self-join and the</text>
+  <text class="m" x="972" y="288">range scan each read a</text>
+  <text class="m" x="972" y="308">contiguous range.</text>
+  <text class="n" x="972" y="344">A shoot split across</text>
+  <text class="n" x="972" y="364">twelve days makes this</text>
+  <text class="n" x="972" y="384">combinatorial. That is</text>
+  <text class="n" x="972" y="404">the whole argument.</text>
+
+  <line class="line" x1="904" y1="184" x2="942" y2="184" marker-end="url(#a)"/>
+  <line class="line" x1="904" y1="284" x2="942" y2="284" marker-end="url(#a)"/>
+  <line class="line" x1="904" y1="384" x2="942" y2="384" marker-end="url(#a)"/>
+
+  <!-- The MCP boundary -->
+
+  <rect class="mcp" x="44" y="452" width="1152" height="66" rx="10"/>
+  <text class="t" x="620" y="480" text-anchor="middle">mcp-clickhouse - stdio subprocess, launched by uv inside the container</text>
+  <text class="i" x="620" y="502" text-anchor="middle">every runtime query crosses this line, reads and the finding write-back alike · 2.2 s to start on Cloud Run</text>
+
+  <line class="line" x1="1072" y1="422" x2="1072" y2="446" marker-end="url(#a)"/>
+
+  <!-- Fast lane -->
+
+  <text class="lane" x="44" y="562">Fast lane: every time the edit changes, because the adjacencies change with it</text>
+
+  <line class="line" x1="620" y1="518" x2="620" y2="582" marker-end="url(#a)"/>
+  <text class="i" x="640" y="546">the agent reads, reasons, and writes back - all across that line</text>
+
+  <rect class="sand" x="340" y="590" width="560" height="72" rx="8"/>
+  <text class="num" x="364" y="620">1</text>
+  <text class="t" x="620" y="620" text-anchor="middle">contradictions, ranked</text>
+  <text class="m" x="620" y="644" text-anchor="middle">self-join on cut_position + 1 · 12 ms server-side, 99,810 rows scanned</text>
+  <text class="i" x="920" y="616">One query, not thirty.</text>
+  <text class="i" x="920" y="636">A self-join sees pairs;</text>
+  <text class="i" x="920" y="656">a loop only sees rows.</text>
+
+  <line class="line" x1="620" y1="662" x2="620" y2="690" marker-end="url(#a)"/>
+
+  <rect class="sea" x="340" y="698" width="560" height="72" rx="8"/>
+  <text class="num" x="364" y="728">2</text>
+  <text class="t" x="620" y="728" text-anchor="middle">the agent decides what matters</text>
+  <text class="m" x="620" y="752" text-anchor="middle">frame_coverage_pct · in_focus · shot size · adjacency in this cut</text>
+  <text class="i" x="44" y="724">This is the actual work.</text>
+  <text class="i" x="44" y="744">Most measured differences</text>
+  <text class="i" x="44" y="764">are not visible ones, and</text>
+  <text class="i" x="44" y="784">a tool that flags everything</text>
+  <text class="i" x="44" y="804">gets switched off.</text>
+
+  <line class="line" x1="620" y1="770" x2="620" y2="798" marker-end="url(#a)"/>
+
+  <rect class="sea" x="340" y="806" width="560" height="72" rx="8"/>
+  <text class="num" x="364" y="836">3</text>
+  <text class="t" x="620" y="836" text-anchor="middle">adjudicate_cut() - two frames, one question</text>
+  <text class="m" x="620" y="860" text-anchor="middle">would an audience notice, at speed?</text>
+  <text class="i" x="920" y="832">Expensive, so it is spent</text>
+  <text class="i" x="920" y="852">only on what survived</text>
+  <text class="i" x="920" y="872">step 2.</text>
+
+  <line class="line" x1="620" y1="878" x2="620" y2="906" marker-end="url(#a)"/>
+
+  <rect class="box" x="340" y="914" width="560" height="72" rx="8"/>
+  <text class="num" x="364" y="944">4</text>
+  <text class="t" x="620" y="944" text-anchor="middle">record_finding() → continuity_findings</text>
+  <text class="m" x="620" y="968" text-anchor="middle">signal → evidence → physics → verdict → recommendation</text>
+
+  <!-- the human, and the branch that goes forward instead of back -->
+  <line class="line" x1="900" y1="950" x2="948" y2="950" marker-end="url(#a)"/>
+  <rect class="sand" x="948" y="914" width="248" height="72" rx="8"/>
+  <text class="t" x="1072" y="944" text-anchor="middle">human review</text>
+  <text class="i" x="1072" y="966" text-anchor="middle">the agent never applies</text>
+
+  <line class="line" x1="292" y1="950" x2="336" y2="950" marker-end="url(#a)"/>
+  <rect class="box" x="44" y="900" width="248" height="100" rx="8"/>
+  <text class="t" x="168" y="928" text-anchor="middle">solve it forwards</text>
+  <text class="m" x="168" y="950" text-anchor="middle">compute_light_rig()</text>
+  <text class="m" x="168" y="968" text-anchor="middle">find_pickup_windows()</text>
+  <text class="i" x="168" y="988" text-anchor="middle">same physics, solved the other way</text>
+</svg>

@@ -1,7 +1,7 @@
 """FastAPI surface for CineMeridian.
 
 Small on purpose. The interesting behaviour lives in the agent; this module
-exists to expose it over HTTP and — just as importantly — to let the MCP path
+exists to expose it over HTTP and - just as importantly - to let the MCP path
 be verified *inside the deployed container*, which is where it actually has to
 work. A stdio subprocess that runs on a laptop and dies in Cloud Run is the
 standard way to fail this track, and `/api/health/mcp` is how we find out
@@ -30,7 +30,7 @@ logger = logging.getLogger("cinemeridian")
 
 APP_NAME = "cinemeridian"
 
-#: The scene the demo analyses. One production, one location — hard-coded here
+#: The scene the demo analyses. One production, one location - hard-coded here
 #: because it is demo scaffolding rather than configuration, and pretending
 #: otherwise would add a settings knob nobody turns.
 PRODUCTION_ID = "prod_tideline"
@@ -194,7 +194,7 @@ async def analyze(request: AnalyzeRequest):
     """Review an edit version, streaming the agent's reasoning as it goes.
 
     Streamed rather than returned in one piece because the interesting part is
-    not the verdict — it is watching the agent narrow three hundred measured
+    not the verdict - it is watching the agent narrow three hundred measured
     contradictions down to the few worth an editor's attention, and say why.
     A console that only showed the final list would hide the actual work.
     """
@@ -317,7 +317,7 @@ async def frame(uri: str):
     """Stream one frame out of GCS.
 
     The console needs to show evidence pairs to a judge who is not logged in to
-    anything, and the alternative — making the bucket world-readable — hands
+    anything, and the alternative - making the bucket world-readable - hands
     out every frame in the production to anyone who guesses a path. Proxying
     keeps the bucket private and still lets the page render.
 

@@ -1,4 +1,4 @@
-# ── Rahasia — jangan pernah, dalam keadaan apa pun ────────────────────────────
+# Rahasia - jangan pernah, dalam keadaan apa pun
 credentials/
 *.pem
 *.key
@@ -8,14 +8,14 @@ credentials/
 .env.local
 !.env.example
 
-# ── Catatan kerja internal — tidak diterbitkan ────────────────────────────────
+# Catatan kerja internal - tidak diterbitkan
 agents/
 Docs/
 resources/
 rencana-awal.txt
 read_folder.md
 
-# ── Python ───────────────────────────────────────────────────────────────────
+# Python
 __pycache__/
 *.py[cod]
 .venv/
@@ -24,7 +24,7 @@ venv/
 .ruff_cache/
 *.egg-info/
 
-# ── Node / Next.js ───────────────────────────────────────────────────────────
+# Node / Remix
 node_modules/
 .next/
 out/
@@ -32,18 +32,18 @@ dist/
 *.tsbuildinfo
 .npm/
 
-# ── Keluaran generator ───────────────────────────────────────────────────────
-# CSV hasil scripts/generate_telemetry.py — dihasilkan ulang, bukan di-commit.
+# Keluaran generator
+# CSV hasil scripts/generate_telemetry.py - dihasilkan ulang, bukan di-commit.
 data/
 
-# ── Aset besar hasil generate ────────────────────────────────────────────────
+# Aset besar hasil generate
 # Plate dasar & beberapa frame contoh tetap di-commit supaya juri bisa
 # menjalankan demo; sisanya dihasilkan ulang oleh scripts/.
 assets/frames/**
 !assets/frames/sc14/su02/t03/
 !assets/frames/sc14/su02/t03/**
 
-# ── OS & editor ──────────────────────────────────────────────────────────────
+# OS & editor
 .DS_Store
 Thumbs.db
 desktop.ini

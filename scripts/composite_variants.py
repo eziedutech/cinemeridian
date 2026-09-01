@@ -22,7 +22,7 @@ one thing different, which is the only thing worth measuring.
 The shadow projection is a deliberate simplification: the sand is treated as a
 flat plane, and a compass bearing relative to the camera is mapped into image
 space with a single foreshortening constant measured from the plate. It is not
-a camera solve. It does not need to be — what matters is that the *same*
+a camera solve. It does not need to be - what matters is that the *same*
 projection is used to draw the shadow and to predict it, so agreement and
 disagreement both mean something.
 
@@ -37,7 +37,7 @@ import argparse
 import json
 import math
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -86,12 +86,13 @@ class FrameSpec:
     color_temp_k: int
     footprint_count: int
     waterline_offset: float      # 0 = as shot, positive = tide further up the beach
+    shadow_fits_in_frame: bool = True   # False when the shadow runs off the sand
 
 
 #: Setups with no figure standing on visible ground. A close-up shows a face,
 #: not the sand; the insert and the CG plate have nobody in them. These frames
 #: still carry colour temperature and footprint count, which is most of what
-#: they are cut for — but no cast shadow, and claiming one would be a lie the
+#: they are cut for - but no cast shadow, and claiming one would be a lie the
 #: vision pass would then dutifully measure.
 NO_GROUND_SHADOW = {"su04", "su05", "su07", "su08"}
 
@@ -126,8 +127,21 @@ def draw_shadow(
     figure: dict,
     spec: FrameSpec,
     foreshorten: float,
-) -> None:
-    """Draw one cast shadow, as a tapered wedge from the figure's feet."""
+    sand_bottom_y: float = 0.92,
+) -> bool:
+    """Draw one cast shadow as a tapered wedge from the figure's feet.
+
+    Returns whether the whole shadow actually fits on the visible sand.
+
+    That return value matters more than it looks. In a shot where the figures
+    are large, a shadow two or three times their height simply does not fit in
+    frame - it runs off the edge, or across foreground dune grass that is
+    nearer the camera than the figures are. Drawing it anyway produces a dark
+    smear that is not a shadow, and the vision pass then dutifully fails to
+    measure it: direction off by a hundred degrees, length read at a quarter of
+    the truth. The shadow is clipped to the sand, and a shot where it did not
+    fit is marked so nothing downstream expects a readable length from it.
+    """
     width, height = image.size
     feet_x = figure["feet_x"] * width
     feet_y = figure["feet_y"] * height
@@ -168,8 +182,26 @@ def draw_shadow(
     blur = (1.0 - spec.shadow_hardness) * figure_height_px * 0.14 + 1.0
     layer = layer.filter(ImageFilter.GaussianBlur(blur))
 
+    # Keep the shadow on the sand. Anything below this line is foreground dune
+    # grass, which stands between the camera and the figures and cannot have
+    # their shadow lying across it.
+    mask = Image.new("L", image.size, 0)
+    ImageDraw.Draw(mask).rectangle(
+        [0, int(figure["head_y"] * height), width, int(sand_bottom_y * height)], fill=255
+    )
+    # Feather the cut. A hard edge here reads as a rendering bug rather than a
+    # shadow, which is worse than the smear it was meant to fix; blurred, the
+    # shadow simply fades out where the sand does.
+    mask = mask.filter(ImageFilter.GaussianBlur(height * 0.035))
+    layer = Image.composite(layer, Image.new("L", image.size, 0), mask)
+
     shadow = Image.new("RGB", image.size, (18, 20, 26))
     image.paste(shadow, (0, 0), layer)
+
+    return (
+        0 <= tip_x <= width
+        and figure["head_y"] * height <= tip_y <= sand_bottom_y * height
+    )
 
 
 def apply_color_temperature(image: Image.Image, kelvin: int) -> Image.Image:
@@ -207,7 +239,7 @@ def stamp_footprints(
     draw = ImageDraw.Draw(layer)
 
     # Keep them on the open sand below the figures and clear of the dune grass.
-    # With nobody in frame — the insert, the empty CG plate — the sand starts
+    # With nobody in frame - the insert, the empty CG plate - the sand starts
     # higher and the prints have the whole lower half to live in.
     figures = meta.get("figures") or []
     top = (max(f["feet_y"] for f in figures) + 0.01) if figures else 0.45
@@ -233,12 +265,14 @@ def stamp_footprints(
     image.paste(Image.new("RGB", image.size, (28, 26, 24)), (0, 0), layer)
 
 
-def render(spec: FrameSpec, out_path: Path) -> None:
+def render(spec: FrameSpec, out_path: Path) -> bool:
     image, meta = load_plate(spec.setup_id)
     foreshorten = meta["ground"]["foreshorten"]
 
+    sand_bottom = meta["ground"].get("sand_bottom_y", 0.92)
+    fits = True
     for figure in meta["figures"]:
-        draw_shadow(image, figure, spec, foreshorten)
+        fits = draw_shadow(image, figure, spec, foreshorten, sand_bottom) and fits
 
     if spec.footprint_count:
         stamp_footprints(image, spec.footprint_count, meta, spec.take_id)
@@ -247,6 +281,7 @@ def render(spec: FrameSpec, out_path: Path) -> None:
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     image.save(out_path, quality=92)
+    return fits
 
 
 def spec_for_take(
@@ -261,7 +296,7 @@ def spec_for_take(
 
     Nothing here is invented. The shadow in the frame is the shadow the sun
     actually casts at that place and instant, which is what lets the agent's
-    computed expectation and its visual measurement genuinely agree — or, when
+    computed expectation and its visual measurement genuinely agree - or, when
     a slate is wrong, genuinely disagree.
     """
     sun = eph.solar_position(LATITUDE, LONGITUDE, captured_at)
@@ -362,11 +397,11 @@ def render_all(out_root: Path) -> int:
                 camera_heading_deg=headings[setup_id],
                 footprint_count=FOOTPRINTS_BY_SETUP[setup_id],
             )
-            specs.append(spec)
-            render(
+            fits = render(
                 spec,
                 out_root / SCENE_ID / setup_id / f"t{take_number:02d}" / "f000.jpg",
             )
+            specs.append(replace(spec, shadow_fits_in_frame=fits))
 
     (out_root / SCENE_ID / "frame_truth.json").write_text(
         json.dumps([asdict(s) for s in specs], indent=2) + "\n", encoding="utf-8"

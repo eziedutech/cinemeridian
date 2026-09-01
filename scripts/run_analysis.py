@@ -7,7 +7,7 @@ when judging this system: whether the agent is deciding anything, or whether it
 is walking a script with commentary.
 
 Read the trace with that question in mind. Queries it wrote itself, candidates
-it dismissed with a reason, an adjudication it chose not to spend — those are
+it dismissed with a reason, an adjudication it chose not to spend - those are
 the signs of the former.
 
 Usage:

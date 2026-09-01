@@ -62,7 +62,7 @@ export async function fetchFindings(
  * Dig the rows out of the MCP tool's response envelope.
  *
  * mcp-clickhouse answers with `{"columns": [...], "rows": [[...]]}` inside an
- * MCP content envelope, which the Python side then stringifies — so the
+ * MCP content envelope, which the Python side then stringifies - so the
  * payload arrives as escaped text within a repr rather than as clean JSON.
  * Finding the columns/rows object and rebuilding records from it is the one
  * approach that survives both shapes.

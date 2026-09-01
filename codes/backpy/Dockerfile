@@ -3,7 +3,7 @@
 # The one line in here that the project depends on is the uv binary. The agent
 # reaches ClickHouse by launching mcp-clickhouse as a stdio subprocess through
 # uv, so an image without uv produces an agent that starts cleanly, answers
-# questions, and never touches the database — the exact failure the track
+# questions, and never touches the database - the exact failure the track
 # rules are written to catch.
 
 FROM python:3.12-slim

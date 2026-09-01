@@ -24,7 +24,7 @@ export function AgentTimeline({
     <div className="panel">
       <h2>Agent timeline</h2>
       <p className="hint">
-        Every query, every physics call, every judgement — as it happened.
+        Every query, every physics call, every judgement - as it happened.
       </p>
 
       {events.length === 0 ? (

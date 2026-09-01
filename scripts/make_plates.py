@@ -5,12 +5,12 @@ One plate per camera setup, generated flat: overcast, soft, directionless
 light. That is deliberate and it is the whole trick.
 
 An image model cannot be asked for "the same scene again, with one variable
-changed" — ask twice and you get two different beaches, two different actors,
+changed" - ask twice and you get two different beaches, two different actors,
 two different compositions, and nothing is comparable. So the model is used
 only for the part that must look real and never has to change: the sand, the
-sea, the sky, the figures. Everything that *does* change between takes —
+sea, the sky, the figures. Everything that *does* change between takes -
 shadow direction and length, colour temperature, footprint count, cloud
-position, waterline height — is composited on afterwards by
+position, waterline height - is composited on afterwards by
 scripts/composite_variants.py, at values we choose and therefore know exactly.
 
 Flat light in the plate is what makes that possible. A plate generated at
@@ -22,7 +22,7 @@ as a reference image, so su02 through su08 are the same beach on the same day
 rather than eight different beaches.
 
 Note on region: the Gemini 3 image models are served from `global`, not from
-us-central1. This is setup tooling, so the region difference costs nothing —
+us-central1. This is setup tooling, so the region difference costs nothing -
 runtime vision still runs in us-central1 alongside ClickHouse.
 
 Usage:
@@ -45,12 +45,12 @@ from app.settings import get_settings  # noqa: E402
 
 PLATES_DIR = ROOT / "assets" / "plates"
 
-#: Quality matters more than latency here — a handful of images, generated
+#: Quality matters more than latency here - a handful of images, generated
 #: once. Served only from `global`.
 MODEL = "gemini-3-pro-image"
 LOCATION = "global"
 
-#: A new project's quota for the pro image model is very small — four images
+#: A new project's quota for the pro image model is very small - four images
 #: was enough to exhaust it. The flash image model is served from us-central1
 #: with a far larger allowance and is good enough for the setups that carry
 #: less of the frame: close-ups, the sand insert, the empty CG plate.

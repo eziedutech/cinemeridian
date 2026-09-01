@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the perception pass: turn rendered frames into ClickHouse rows.
 
-This is the slow lane of the system — the overnight pass after a shoot day.
+This is the slow lane of the system - the overnight pass after a shoot day.
 Every sampled frame goes through Gemini once, and what comes back is not a
 description but a set of measurements: shadow bearing, shadow length, how many
 footprints, how warm the light. Those rows are what the combinatorial queries

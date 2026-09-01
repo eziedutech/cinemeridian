@@ -239,7 +239,7 @@ def adjudicate_cut(
 #: The live mcp-clickhouse toolset, handed over when the agent is built.
 #: record_finding writes through it, so a finding still travels the MCP path.
 #: The requirement is that ClickHouse is reached through the MCP server, not
-#: that the model has to be the one to type the statement — and asking the
+#: that the model has to be the one to type the statement - and asking the
 #: model to chain "compose SQL" into "run SQL" produced exactly the failure you
 #: would expect: it tried to nest one tool call inside another and emitted a
 #: malformed call.

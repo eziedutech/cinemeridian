@@ -4,7 +4,7 @@
 
 ![license MIT](https://img.shields.io/badge/license-MIT-green)
 ![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB)
-![Google ADK](https://img.shields.io/badge/Google-ADK%202.8-4285F4)
+![Gemini 3.7 Flash](https://img.shields.io/badge/Gemini-3.7%20Flash-4285F4)
 ![ClickHouse](https://img.shields.io/badge/ClickHouse-via%20MCP-FFCC01)
 ![Remix](https://img.shields.io/badge/Remix-2.15-000000)
 
@@ -40,7 +40,7 @@ People are excellent at comparing one pair of shots. Five things defeat them,
 and not one is about eyesight:
 
 - **Combinatorial explosion.** Ten setups by eight takes, and the error only
-  matters for the pairs that end up *adjacent in the cut* — which changes every
+  matters for the pairs that end up *adjacent in the cut* - which changes every
   time the edit is revised.
 - **Time separation.** Coverage for one scene can be shot on day 3 and day 41.
 - **Sub-threshold drift.** The audience feels something is wrong without being
@@ -51,7 +51,7 @@ and not one is about eyesight:
   not visible at all.
 
 Continuity *looks* like a vision problem, so people build image comparators, and
-those fail — because the real problem is combinatorial. CineMeridian uses vision
+those fail - because the real problem is combinatorial. CineMeridian uses vision
 only to **turn pixels into facts**, and hands the actual work to an analytical
 database.
 
@@ -62,9 +62,9 @@ from (latitude, longitude, timestamp), so there is a correct answer nobody has
 to be asked for. A useful side effect: a mis-slated take exposes itself, because
 its shadows do not match the ephemeris for the time written on the slate.
 
-**One calculation, read two ways.** For a practical shot, solve for *when* — the
+**One calculation, read two ways.** For a practical shot, solve for *when* - the
 window in which conditions will match again, for pickups and reshoots. For a CG
-shot, solve for *how much* — the key-light azimuth, elevation and colour
+shot, solve for *how much* - the key-light azimuth, elevation and colour
 temperature that will match the plate. Same arithmetic, opposite direction.
 
 The agent **only ever recommends.** It does not modify an edit, submit a render,
@@ -96,7 +96,7 @@ spell can take the better part of a minute. It is waking, not broken.
 
 Every runtime query reaches ClickHouse through the **`mcp-clickhouse`** MCP
 server, launched as a stdio subprocess and attached to the ADK agent as a
-toolset — never through a database client in application code. Reads and the
+toolset - never through a database client in application code. Reads and the
 finding write-back both travel that path.
 
 The wiring is in [`codes/backpy/app/agent.py`](codes/backpy/app/agent.py); the
@@ -113,14 +113,14 @@ health endpoint that proves it works in the deployed container is
 | `record_finding` | `tools/audit.py` | writes one finding for human review, through the same MCP session |
 
 The scripts in [`scripts/`](scripts) do talk to ClickHouse over HTTPS, but they
-are setup tooling that runs before the agent exists — schema, data load, the
-restricted user — and are not part of the running system.
+are setup tooling that runs before the agent exists - schema, data load, the
+restricted user - and are not part of the running system.
 
 **The agent cannot break anything.** `mcp-clickhouse` is read-only unless write
 access is enabled, and that flag is all-or-nothing: with it set, anything the
 model puts in a query reaches the server, `DROP TABLE` included. So the boundary
 is a grant rather than a flag. The agent connects as a ClickHouse user with
-`SELECT` across the database and `INSERT` into `continuity_findings` alone —
+`SELECT` across the database and `INSERT` into `continuity_findings` alone -
 verified by attempting the things it should refuse. Setup scripts use the admin
 user, which never has a model attached to it.
 
@@ -128,12 +128,12 @@ user, which never has a model attached to it.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  frontremix — Remix console (Cloud Run)                      │
+│  frontremix - Remix console (Cloud Run)                      │
 │  findings map · evidence pair · agent timeline over SSE      │
 └───────────────────────────┬──────────────────────────────────┘
                             │ REST + SSE
 ┌───────────────────────────▼──────────────────────────────────┐
-│  backpy — FastAPI + Google ADK (Cloud Run)                   │
+│  backpy - FastAPI + Google ADK (Cloud Run)                   │
 │                                                              │
 │   cinemeridian_continuity_agent  ·  Gemini 2.5 Flash         │
 │     MCPToolset ─────────────────────────────► mcp-clickhouse │
@@ -141,7 +141,7 @@ user, which never has a model attached to it.
 │     compute_light_rig / find_pickup_windows ─► ephemeris.py  │
 │     record_finding ──────────────────────────► mcp-clickhouse│
 │                                                              │
-│   ephemeris.py — sun, moon, tide. Pure maths, no deps.       │
+│   ephemeris.py - sun, moon, tide. Pure maths, no deps.       │
 └──────────┬────────────────────────────────┬──────────────────┘
            │ MCP (stdio)                    │ Vertex AI
 ┌──────────▼─────────────┐   ┌──────────────▼──────────────────┐
@@ -149,29 +149,16 @@ user, which never has a model attached to it.
 │  7 tables              │   │  perception + adjudication      │
 └────────────────────────┘   └─────────────────────────────────┘
                              ┌─────────────────────────────────┐
-                             │  GCS — synthetic frames         │
+                             │  GCS - synthetic frames         │
                              └─────────────────────────────────┘
 ```
 
-The pipeline runs in two lanes. The **slow lane** — perception into relational —
+The pipeline runs in two lanes. The **slow lane** - perception into relational -
 runs once at ingest, standing in for the overnight pass after a shoot day. The
-**fast lane** — hunting contradictions — runs every time the edit changes, and
+**fast lane** - hunting contradictions - runs every time the edit changes, and
 is the only one that has to be quick.
 
-```
-Gemini vision  ──►  structured observations  ──►  ClickHouse (via MCP)
-   (perception)          (frame_observations)        (the combinatorial work)
-                                                              │
-computed physics ─────────────────────────────────────────────┤
-   (ephemeris.py: sun, moon, simulated tide)                   │
-                                                              ▼
-                                              contradictions, ranked
-                                                              │
-                                          Gemini adjudication (targeted)
-                                                              │
-                                                              ▼
-                                        recommendations, for human review
-```
+![How a cut gets checked](assets/diagrams/pipeline.svg)
 
 Seven ClickHouse tables ([`sql/001_schema.sql`](sql/001_schema.sql)). The
 `ORDER BY` keys are the design, not decoration: the self-join of observations of
@@ -205,7 +192,7 @@ codes/
   backpy/                    FastAPI + Google ADK agent
     app/
       agent.py               the agent, and its mcp-clickhouse toolset
-      ephemeris.py           sun/moon/tide maths — pure, no dependencies
+      ephemeris.py           sun/moon/tide maths - pure, no dependencies
       prompts.py             the instruction, and the analysis task
       settings.py            configuration from the environment
       tools/                 vision, prescribe, audit, agent_tools
@@ -224,7 +211,7 @@ python -m pip install -r codes/backpy/requirements-dev.txt
 ```
 
 Create the schema, the restricted agent user, and the simulated production.
-All of this is **setup only** — runtime access goes through MCP:
+All of this is **setup only** - runtime access goes through MCP:
 
 ```bash
 python scripts/apply_schema.py
@@ -240,7 +227,7 @@ Check the part the track actually requires:
 python scripts/verify_mcp.py
 ```
 
-Render the frames and run the perception pass. This is the slow lane — one
+Render the frames and run the perception pass. This is the slow lane - one
 Gemini call per frame, writing the observations the queries then work on:
 
 ```bash
@@ -278,7 +265,7 @@ npm --prefix codes/frontremix run build && CINEMERIDIAN_API_URL=http://127.0.0.1
 
 Two Cloud Run services, built by Cloud Build. Secrets go through Secret Manager,
 never through `--set-env-vars`, and there is no service account key file
-anywhere — the runtime uses the service account directly.
+anywhere - the runtime uses the service account directly.
 
 ```bash
 gcloud builds submit codes/backpy --tag us-central1-docker.pkg.dev/$PROJECT/cinemeridian/cinemeridian-api:latest
@@ -313,11 +300,12 @@ never committed under any circumstances.
 | Variable | Purpose |
 |---|---|
 | `GOOGLE_CLOUD_PROJECT` | project that owns Vertex AI and the asset bucket |
-| `GOOGLE_CLOUD_LOCATION` | `us-central1`, matching ClickHouse |
-| `GOOGLE_GENAI_USE_VERTEXAI` | `true` — Vertex AI, not the developer API |
+| `GOOGLE_CLOUD_LOCATION` | `us-central1`, matching ClickHouse and the bucket |
+| `CINEMERIDIAN_GEMINI_LOCATION` | `us`. Gemini 3 is not served from a plain regional endpoint |
+| `GOOGLE_GENAI_USE_VERTEXAI` | `true` - Vertex AI, not the developer API |
 | `GOOGLE_CLOUD_QUOTA_PROJECT` | set explicitly, so this project does not depend on the machine-wide ADC quota project that every local project shares |
 | `GCS_ASSET_BUCKET` | where synthetic frames live |
-| `CINEMERIDIAN_MODEL` | `gemini-2.5-flash` |
+| `CINEMERIDIAN_MODEL` | `gemini-3.7-flash` |
 | `CLICKHOUSE_HOST` / `PORT` / `USER` / `PASSWORD` | admin credentials, used by setup scripts only |
 | `CLICKHOUSE_AGENT_USER` / `AGENT_PASSWORD` | the restricted user the agent runs as, created by `create_agent_user.py` |
 
@@ -328,14 +316,14 @@ uses the runtime service account. No JSON key is ever downloaded.
 
 - All footage is **synthetic and self-made**. The base plates come from Gemini
   image models on Vertex AI, generated under flat overcast light; every variable
-  in dispute — shadow direction and length, colour temperature, footprint count,
-  waterline — is composited on afterwards at a value we chose. No film or
+  in dispute - shadow direction and length, colour temperature, footprint count,
+  waterline - is composited on afterwards at a value we chose. No film or
   broadcast material is used anywhere.
 - There is no real production, no real crew, and no real film. *The Tide Line*
   does not exist.
 - Sun and moon positions are **real astronomy** (NOAA solar position algorithm,
   in [`ephemeris.py`](codes/backpy/app/ephemeris.py), no dependencies).
-- **Tide is simulated** — two harmonic constituents against an arbitrary epoch.
+- **Tide is simulated** - two harmonic constituents against an arbitrary epoch.
   Weather telemetry is simulated too, from a physical afternoon model rather
   than a random walk. Neither is a forecast for any real place, and nothing in
   the demo presents them as one.
@@ -346,12 +334,15 @@ The continuity errors in the demo scene are planted deliberately by
 [`generate_production.py`](scripts/generate_production.py), so there is an answer
 key ([`assets/ground_truth.json`](assets/ground_truth.json)) and "the agent found
 N of M" is a claim that can be checked rather than asserted. The key never enters
-a prompt, a database table, or a file path — if the answers leak through a path,
+a prompt, a database table, or a file path - if the answers leak through a path,
 the score means nothing.
 
-On the current scene the agent finds **three of five** planted errors, plus one
-finding nobody planted that is nevertheless real: a nineteen-degree elevation
-jump across a cut. It misses the mis-slated take and an asset version drift.
+On the current scene the agent finds **four of five** planted errors, including
+the hardest one: the take whose slate is seventy minutes wrong, caught because
+its shadows disagree with the ephemeris for the time written on it. It also
+records one finding nobody planted, a waterline that recedes across a cut,
+which is real drift rather than a false positive. It misses one cross-take
+shadow drift.
 
 Numbers worth quoting, all measured rather than estimated:
 
@@ -364,26 +355,53 @@ Numbers worth quoting, all measured rather than estimated:
 
 **What the vision pass can and cannot do.** Measured against the answer key,
 Gemini reads shadow *direction* to within a few degrees once a shadow is long
-enough to have one, and **underestimates extreme lengths by roughly forty
-percent**. A shadow occupying half a percent of frame produced a sixty-eight
-degree error reported at 0.90 confidence — so `frame_coverage_pct` is the filter
-to trust, not `confidence`.
+enough to have one and small enough to fit in frame, and **underestimates
+extreme lengths by roughly forty percent**. A shadow occupying half a percent of
+frame produced a sixty-eight degree error reported at 0.90 confidence, so
+`frame_coverage_pct` is the filter to trust, not `confidence`.
+
+There is a harder limit, and it is geometry rather than model quality. In a
+medium shot, where the figures are large, a shadow two or three times their
+height does not fit on screen at all: it runs off the edge, or across foreground
+dune grass that stands between the camera and the figures. Eleven of the thirty
+frames are in that position, and the compositor marks them
+(`shadow_fits_in_frame: false`) rather than drawing a smear the vision pass
+would then dutifully mis-measure. This is not an artefact of synthetic footage.
+The same is true of real coverage: a raking shadow in a medium shot is simply
+not in the frame. So shadow evidence comes from the wides, and the reverses
+carry colour temperature, footprints and waterline instead. The cross-take drift
+finding needs no vision at all - capture time joined to computed physics is
+enough.
+
+**On model choice.** Everything runs on `gemini-3.7-flash`, measured against
+`gemini-2.5-flash` rather than assumed better. On the same five frames with a
+known answer, shadow direction error fell from 36.6 degrees to 13.4, footprint
+counts went from wild (0, 6, 7, 34 against a truth of 2, 4, 6, 14) to nearly
+exact, and the full investigation went from three of five planted errors to
+four, picking up the mis-slated take it had never previously caught. It also
+spent four visual adjudications where the older model spent one.
+
+One trap worth naming: Gemini 3 models are served from the `global` endpoint
+and the `us` and `eu` multi-regions, **not** from a plain regional one. Calling
+`gemini-3.7-flash` at `us-central1` returns a 404 that reads exactly like a
+permissions problem and is not one. ClickHouse and the asset bucket stay in
+`us-central1`; only the model calls go to `us`.
 
 None of that sinks the design, and the reason is worth stating plainly: the
 system compares takes against takes, never against absolute truth, so a
-systematic bias cancels. The one place absolute values matter — a mis-slated
-take — is handled by normalising each take against the median of its own setup,
+systematic bias cancels. The one place absolute values matter - a mis-slated
+take - is handled by normalising each take against the median of its own setup,
 because framing is identical within a setup and the bias travels with framing.
 
 ## Credits and licenses
 
 - **Google ADK**, **google-genai**, **Vertex AI** (Gemini 2.5 Flash for
-  perception and adjudication, Gemini 3 Pro Image for the base plates) — Google
+  perception and adjudication, Gemini 3 Pro Image for the base plates) - Google
   Cloud. This project uses no AI SDK from any other provider.
-- **[mcp-clickhouse](https://github.com/ClickHouse/mcp-clickhouse)** — ClickHouse,
+- **[mcp-clickhouse](https://github.com/ClickHouse/mcp-clickhouse)** - ClickHouse,
   Apache 2.0. Run as a stdio subprocess; not vendored.
-- **ClickHouse Cloud** — the analytical database.
-- **FastAPI**, **uvicorn**, **Pillow**, **Remix**, **React** — their respective
+- **ClickHouse Cloud** - the analytical database.
+- **FastAPI**, **uvicorn**, **Pillow**, **Remix**, **React** - their respective
   open source licences.
 - Solar position follows the **NOAA** algorithm, implemented from the published
   method rather than copied from any package.
@@ -392,7 +410,7 @@ because framing is identical within a setup and the bias travels with framing.
 
 The order was deliberate: physics first, then data, then the agent, then
 pictures. The ephemeris engine and its tests came before anything else, because
-everything downstream compares against it — and its tests check facts that hold
+everything downstream compares against it - and its tests check facts that hold
 independently of the implementation (declination at the solstices, the geometry
 of solar noon, the shape of the cotangent) rather than numbers copied from a
 previous run.
@@ -404,13 +422,13 @@ dates the match-window query returned *nothing*, and the reason is physics
 rather than a bug: sun geometry repeats when declination repeats, and
 declination is symmetric about a solstice. An early-September shoot finds its
 mirror in April, seven months out. Moved to early December, the window lands
-five weeks later — and it is five minutes a day for eight days, which is a far
+five weeks later - and it is five minutes a day for eight days, which is a far
 better answer than a comfortable one. That is also real production advice: if an
 exterior scene may need pickups, schedule it near a solstice.
 
 **An image model cannot be asked for "the same scene, one variable changed."**
 Ask twice and you get two different beaches. So the model supplies only what
-must look real and never changes — sand, sea, sky, figures — under flat overcast
+must look real and never changes - sand, sea, sky, figures - under flat overcast
 light, and everything in dispute is composited on afterwards from numbers we
 choose. Overcast is load-bearing: a golden-hour plate arrives with shadows baked
 in at an angle nobody picked and cannot remove.
@@ -419,8 +437,8 @@ in at an angle nobody picked and cannot remove.
 Gemini to locate the figures returned boxes offset and twice their true height,
 so anchors are measured by hand once per plate. Vision is used for what it is
 good at: relative and magnitude judgements, and the one question a database
-cannot answer — would an audience notice, at speed.
+cannot answer - would an audience notice, at speed.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).

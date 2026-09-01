@@ -65,7 +65,7 @@ def prescribe_light_rig(
 
     Cloud cover feeds softness rather than direction: an overcast sky spreads
     the source without moving it, so the shadow still falls where the sun says
-    it does — it just stops having an edge.
+    it does - it just stops having an edge.
     """
     sun = eph.solar_position(latitude, longitude, reference_time_utc)
     softness = min(0.95, 0.15 + cloud_cover_pct / 100.0 * 0.8)

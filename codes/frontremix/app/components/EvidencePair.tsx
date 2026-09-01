@@ -39,7 +39,7 @@ export function EvidencePair({ finding, apiBase, bucket }: Props) {
     <div className="panel">
       <h2>Evidence</h2>
       <p className="hint">
-        The two frames as they are cut against each other. Both are synthetic —
+        The two frames as they are cut against each other. Both are synthetic -
         the plate came from a generative model, and every variable in dispute
         was composited on at a value we chose.
       </p>
@@ -65,7 +65,7 @@ export function EvidencePair({ finding, apiBase, bucket }: Props) {
             <div className="empty">single-take finding</div>
           )}
           <figcaption>
-            {finding.take_b || "—"}
+            {finding.take_b || "-"}
             <br />
             incoming
           </figcaption>
@@ -89,8 +89,6 @@ function Row({ label, value }: { label: string; value: string }) {
       <dt
         style={{
           fontSize: 11,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
           color: "var(--ink-faint)",
         }}
       >

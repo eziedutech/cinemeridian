@@ -1,4 +1,4 @@
--- CineMeridian — the queries the agent chooses between.
+-- CineMeridian - the queries the agent chooses between.
 --
 -- Every one of these has been run against the loaded scene and returns what it
 -- claims to. They are kept here rather than buried in prompts so the agent can
@@ -16,7 +16,7 @@
 -- A. Cross-take drift on cuts that are actually adjacent
 --
 -- The combinatorial core. Two takes only clash if the edit puts them next to
--- each other, and every edit version puts them somewhere different — which is
+-- each other, and every edit version puts them somewhere different - which is
 -- why this is recomputed per version rather than once at ingest.
 --
 -- Note it needs no vision at all: capture metadata joined to computed physics
@@ -51,7 +51,7 @@ ORDER BY shadow_factor DESC;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- B. Monotonic violation — a process running backwards in the cut
+-- B. Monotonic violation - a process running backwards in the cut
 --
 -- Footprints accumulate. Dew burns off. A tide line moves one way over an
 -- afternoon. When the cut order disagrees with the direction, no single frame
@@ -78,7 +78,7 @@ FROM (
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- C. Perception against physics — catches mis-slated takes
+-- C. Perception against physics - catches mis-slated takes
 --
 -- What the frame shows, against what the sun was doing at the time written on
 -- the slate. When they disagree, the slate may be the thing that is wrong.
@@ -124,7 +124,7 @@ ORDER BY abs(vs_setup_median - 1) DESC;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- D. Match window — when will the sun return to this geometry?
+-- D. Match window - when will the sun return to this geometry?
 --
 -- The prospective half. Because the ephemeris is precomputed by the minute,
 -- this is a range scan rather than per-row arithmetic.
@@ -159,7 +159,7 @@ ORDER BY day;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- E. Asset and LED volume drift — the errors that are invisible by nature
+-- E. Asset and LED volume drift - the errors that are invisible by nature
 --
 -- Nobody can see that a background asset moved from v012 to v013 between
 -- render submissions. It is not a perceptual problem at all, which is why a

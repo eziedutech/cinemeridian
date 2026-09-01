@@ -1,7 +1,7 @@
 """Physics reference for CineMeridian.
 
 Everything a shot's lighting *must* obey, computed from (latitude, longitude,
-timestamp) alone. No API calls, no third-party packages, no model inference —
+timestamp) alone. No API calls, no third-party packages, no model inference -
 the arithmetic is deterministic, so it belongs here and not in a prompt.
 
 Two of these quantities are astronomy and one is a stand-in:
@@ -9,7 +9,7 @@ Two of these quantities are astronomy and one is a stand-in:
 * Sun position and moon phase/position are real algorithms (NOAA solar
   position; a truncated lunar series) and are accurate to well within the
   tolerance any continuity question needs.
-* ``tide_level_m`` is a **simulation** — two harmonic constituents with an
+* ``tide_level_m`` is a **simulation** - two harmonic constituents with an
   arbitrary phase reference. It behaves like a tide and is labelled as
   simulated everywhere it surfaces. It is not a prediction for any real coast.
 """
@@ -81,7 +81,7 @@ def julian_century(jd: float) -> float:
     return (jd - 2451545.0) / 36525.0
 
 
-# ── Sun — NOAA solar position algorithm ──────────────────────────────────────
+# ── Sun - NOAA solar position algorithm ──────────────────────────────────────
 
 def solar_position(lat_deg: float, lon_deg: float, dt: datetime) -> SolarPosition:
     """Sun azimuth and elevation. Longitude is east-positive."""
@@ -141,7 +141,7 @@ def solar_position(lat_deg: float, lon_deg: float, dt: datetime) -> SolarPositio
 
     sin_zenith = math.sin(zenith)
     if abs(sin_zenith) < 1e-9 or abs(math.cos(lat)) < 1e-9:
-        # Sun overhead, or observer at a pole — azimuth is undefined.
+        # Sun overhead, or observer at a pole - azimuth is undefined.
         azimuth = 180.0
     else:
         cos_az = ((math.sin(lat) * cos_zenith) - math.sin(declination)) / (
@@ -184,7 +184,7 @@ def shadow_length_ratio(elevation_deg: float) -> float:
     """Shadow length as a multiple of object height: cot(elevation).
 
     This is the half of the physics that misleads people. The ratio is nearly
-    flat through the middle of the day and then explodes as the sun drops —
+    flat through the middle of the day and then explodes as the sun drops -
     which is why a twenty-minute gap is harmless at noon and ruinous at 17:40.
     """
     if elevation_deg <= 0.0:
@@ -197,7 +197,7 @@ def shadow_direction_deg(sun_azimuth_deg: float, camera_heading_deg: float = 0.0
     """Direction a shadow points, measured in the camera's frame.
 
     Shadows fall opposite the sun. Subtracting the camera heading turns a
-    compass bearing into something an observer — human or Gemini — can
+    compass bearing into something an observer - human or Gemini - can
     actually read off a single frame, which is the only thing they can see.
     """
     return (sun_azimuth_deg + 180.0 - camera_heading_deg) % 360.0
@@ -230,7 +230,7 @@ def dominant_drift_axis(elevation_deg: float) -> str:
     return "length" if elevation_deg < 20.0 else "direction"
 
 
-# ── Moon — truncated lunar series ────────────────────────────────────────────
+# ── Moon - truncated lunar series ────────────────────────────────────────────
 
 def lunar_position(lat_deg: float, lon_deg: float, dt: datetime) -> LunarPosition:
     dt = dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
@@ -290,7 +290,7 @@ def moon_phase(dt: datetime) -> float:
     return ((jd - 2451550.1) / 29.530588853) % 1.0
 
 
-# ── Tide — SIMULATED, not a prediction ───────────────────────────────────────
+# ── Tide - SIMULATED, not a prediction ───────────────────────────────────────
 
 def tide_level_m(
     dt: datetime,
@@ -304,7 +304,7 @@ def tide_level_m(
 
     Two harmonic constituents (M2 lunar, S2 solar) summed against a fixed
     epoch. That is enough to produce a plausible semi-diurnal curve with a
-    spring/neap beat — a waterline that moves the way an audience expects.
+    spring/neap beat - a waterline that moves the way an audience expects.
 
     It is **not** a prediction for any real location, and nothing downstream
     may present it as one.
@@ -319,7 +319,7 @@ def tide_level_m(
     )
 
 
-# ── Bulk precompute — feeds the ClickHouse ``ephemeris`` table ───────────────
+# ── Bulk precompute - feeds the ClickHouse ``ephemeris`` table ───────────────
 
 def ephemeris_series(
     production_id: str,
@@ -331,8 +331,8 @@ def ephemeris_series(
 ):
     """Yield one row per step, matching the ``ephemeris`` table column order.
 
-    Precomputing the whole production window turns the match-window query —
-    "when will these conditions repeat?" — into a plain range scan instead of
+    Precomputing the whole production window turns the match-window query -
+    "when will these conditions repeat?" - into a plain range scan instead of
     per-row arithmetic.
     """
     ts = start

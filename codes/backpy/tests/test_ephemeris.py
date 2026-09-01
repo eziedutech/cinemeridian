@@ -1,8 +1,8 @@
 """Tests for the physics reference.
 
 These check the ephemeris against facts that are true independently of the
-implementation — the sun's declination at solstice, the geometry of solar
-noon, the shape of the cotangent — rather than against numbers copied out of
+implementation - the sun's declination at solstice, the geometry of solar
+noon, the shape of the cotangent - rather than against numbers copied out of
 a previous run. If the algorithm is wrong, a self-consistent test would agree
 with it and tell us nothing.
 """
@@ -113,7 +113,7 @@ class TestShadowGeometry:
         assert eph.shadow_direction_deg(350.0) == pytest.approx(170.0)
 
     def test_camera_heading_rotates_the_shadow_into_frame(self):
-        """Same sun, camera turned 90 degrees — the shadow reads 90 degrees over."""
+        """Same sun, camera turned 90 degrees - the shadow reads 90 degrees over."""
         world = eph.shadow_direction_deg(247.0, camera_heading_deg=0.0)
         turned = eph.shadow_direction_deg(247.0, camera_heading_deg=90.0)
         assert (world - turned) % 360.0 == pytest.approx(90.0)
@@ -198,7 +198,7 @@ class TestSimulatedTide:
         assert min(levels) >= -(1.1 + 0.35) - 1e-9
 
     def test_spring_neap_beat_exists(self):
-        """M2 and S2 drift in and out of phase — the daily range must vary."""
+        """M2 and S2 drift in and out of phase - the daily range must vary."""
         t0 = datetime(2026, 9, 8, tzinfo=UTC)
         daily_ranges = []
         for day in range(15):

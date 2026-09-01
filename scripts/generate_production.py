@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Generate the fictional production: takes, edit versions, and render configs.
 
-This builds Scene 14 of a film that does not exist — two figures talking on a
-beach through the late afternoon — with continuity errors planted deliberately
+This builds Scene 14 of a film that does not exist - two figures talking on a
+beach through the late afternoon - with continuity errors planted deliberately
 so there is something true to measure the agent against.
 
 **Everything is invented.** No real production, no real crew, no real
@@ -12,7 +12,7 @@ simulated.
 The planted errors are the point. Because we place them, we know the answer
 key, and "the agent found seven of nine" is a claim that can be checked
 instead of asserted. The key lands in assets/ground_truth.json and must never
-reach a prompt, a ClickHouse table, or a file path — if the answers leak, the
+reach a prompt, a ClickHouse table, or a file path - if the answers leak, the
 score is theatre.
 
 Take timings are derived from the real ephemeris, not invented, so that a
@@ -78,8 +78,8 @@ BEATS = list(range(1, 13))
 #: Nothing is scheduled past about 16:40 local. Past that the sun drops below
 #: three degrees and the shadow length ratio hits its clamp, so two shots that
 #: are genuinely different both read as "20" and the signal is gone. Between
-#: 13:00 and 16:40 the ratio runs 0.8 to 7.3 — a ninefold spread, all of it
-#: measurable — and the dominant drift axis flips from direction to length at
+#: 13:00 and 16:40 the ratio runs 0.8 to 7.3 - a ninefold spread, all of it
+#: measurable - and the dominant drift axis flips from direction to length at
 #: about 16:00, which is the point the scene exists to make.
 SCHEDULE = [
     # setup_id, shoot_day index into SHOOT_DAYS, local start hour, take count
@@ -124,7 +124,7 @@ def build_takes() -> tuple[list[dict], list[dict]]:
 
             # PLANTED ERROR: a mis-slated take. The camera report says this one
             # was shot 70 minutes earlier than it was. Nothing in the metadata
-            # contradicts it — but at this latitude 70 minutes near sunset
+            # contradicts it - but at this latitude 70 minutes near sunset
             # moves the sun far enough that the shadows in the frame cannot
             # match the slate. The agent should catch it without being asked.
             if take_id == "sc14_su03_t03":
@@ -171,7 +171,7 @@ def build_takes() -> tuple[list[dict], list[dict]]:
 
 #: The cut, as two versions. v13 is the editor's earlier assembly; v14 is the
 #: one they just locked, and it moves the footprint insert forward. The footage
-#: did not change — the adjacencies did. That is the argument for recomputing
+#: did not change - the adjacencies did. That is the argument for recomputing
 #: on every version rather than once at ingest.
 #:
 #: One cut per setup, so a take appears once and carries one set of values.
@@ -179,7 +179,7 @@ EDIT_V13 = ["su01", "su02", "su04", "su05", "su03", "su06", "su07", "su08"]
 EDIT_V14 = ["su01", "su04", "su07", "su02", "su05", "su03", "su06", "su08"]
 
 #: How many footprints are in the sand when each setup was shot. Footprints
-#: only accumulate — the crew rakes between setups, so the count tracks the
+#: only accumulate - the crew rakes between setups, so the count tracks the
 #: story rather than the shoot, and a cut that shows fewer of them later is
 #: running the scene backwards.
 #:
@@ -281,7 +281,7 @@ def build_render_configs() -> tuple[list[dict], list[dict]]:
 
     # PLANTED ERROR: the CG shot was lit from the wrong reference. The key
     # light matches mid-afternoon, not the late-afternoon master it has to cut
-    # against — 14 degrees off in azimuth and over 700 K too cool.
+    # against - 14 degrees off in azimuth and over 700 K too cool.
     wrong_azimuth = sun.azimuth_deg - 14.2
     wrong_temp = sun.color_temp_k + 740
 

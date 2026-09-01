@@ -3,8 +3,8 @@
 The single most important thing in this file is that **ClickHouse is reached
 through an MCP server, never through a database client**. `mcp-clickhouse`
 runs as a stdio subprocess launched by `uv`, and its tools are attached to the
-agent as a toolset. Every runtime query the agent makes — reads and the
-finding write-back alike — travels that path.
+agent as a toolset. Every runtime query the agent makes - reads and the
+finding write-back alike - travels that path.
 
 Nothing else in codes/backpy/app opens a ClickHouse connection. The scripts in
 scripts/ do talk to ClickHouse over HTTPS, but they are setup tooling that runs
@@ -44,7 +44,7 @@ MCP_CLICKHOUSE_PYTHON = "3.12"
 MCP_STARTUP_TIMEOUT_S = 180.0
 
 #: The tool names mcp-clickhouse actually exposes. Note `run_query`, not
-#: `run_select_query` — the server renamed it, and an agent filtered on the old
+#: `run_select_query` - the server renamed it, and an agent filtered on the old
 #: name silently ends up with no way to query at all.
 #:
 #: run_query is read-only unless CLICKHOUSE_ALLOW_WRITE_ACCESS is set. The
@@ -91,6 +91,13 @@ def _model_with_retry(settings: Settings) -> Gemini:
     """The model, configured to survive a rate limit instead of dying on one."""
     return Gemini(
         model=settings.model,
+        # Gemini 3 is not served from a plain regional endpoint, so the client
+        # is pointed at the multi-region rather than at ClickHouse's region.
+        client_kwargs={
+            "vertexai": True,
+            "project": settings.project_id,
+            "location": settings.gemini_location,
+        },
         retry_options=types.HttpRetryOptions(
             attempts=RETRY_ATTEMPTS,
             initial_delay=RETRY_INITIAL_DELAY_S,
@@ -109,8 +116,8 @@ def build_agent(
     """The continuity agent, with ClickHouse attached over MCP.
 
     Pass an existing toolset to share one already-warm subprocess. Launching
-    mcp-clickhouse takes well over ten seconds the first time — uv has to
-    resolve and start the server — and paying that on the first request means
+    mcp-clickhouse takes well over ten seconds the first time - uv has to
+    resolve and start the server - and paying that on the first request means
     a dead pause in front of whoever is watching.
     """
     settings = settings or get_settings()

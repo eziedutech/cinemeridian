@@ -6,7 +6,8 @@
   "horizon_y": 0.295,
   "ground": {
     "_note": "Foreshortening of the sand plane: how much one unit of depth away from camera compresses vertically compared with one unit across frame. Measured from the beach perspective in this plate.",
-    "foreshorten": 0.42
+    "foreshorten": 0.42,
+    "sand_bottom_y": 0.86
   },
   "figures": [
     {

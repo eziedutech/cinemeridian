@@ -7,7 +7,7 @@ not reviewable.
 
 `human_reviewed` starts at 0 and only a person moves it. The agent recommends;
 it does not act on the edit, and it does not mark its own work as accepted.
-That is a deliberate boundary and it is worth being loud about — it is the
+That is a deliberate boundary and it is worth being loud about - it is the
 difference between a tool an editorial department will let near a cut and one
 it will not.
 """

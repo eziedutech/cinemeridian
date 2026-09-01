@@ -3,7 +3,9 @@
   "plate": "su03.png",
   "horizon_y": 0.42,
   "ground": {
-    "foreshorten": 0.55
+    "foreshorten": 0.55,
+    "sand_bottom_y": 0.94,
+    "_note": "sand_bottom_y: below this the frame is foreground dune grass, nearer the camera than the figures, so no cast shadow of theirs can lie across it."
   },
   "figures": [
     {

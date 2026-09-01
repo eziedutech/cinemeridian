@@ -6,7 +6,7 @@ pass: two frames at once, run only on the handful of contradictions the
 database has already flagged as worth a human's attention.
 
 Both return structured output through `response_schema`. Nothing here parses
-prose — a continuity measurement recovered by regex from a sentence is a
+prose - a continuity measurement recovered by regex from a sentence is a
 measurement nobody should trust.
 """
 
@@ -116,24 +116,24 @@ before or after, and do not describe the story.
 
 Measure whichever of these are actually present:
 
-- primary_shadow / direction_deg — the compass-style bearing the main figure's
+- primary_shadow / direction_deg - the compass-style bearing the main figure's
   shadow points *within the frame*, where 0 is straight up the frame (away
   from camera), 90 is frame right, 180 is straight down (toward camera).
-- primary_shadow / length_ratio — the shadow's length divided by the height of
+- primary_shadow / length_ratio - the shadow's length divided by the height of
   the figure casting it.
-- primary_shadow / hardness — 0 for a soft diffuse edge, 1 for a razor edge.
-- footprints / count — how many distinct footprints are visible in the sand.
-- waterline / height_m — how far up the beach the wet sand reaches, as a
+- primary_shadow / hardness - 0 for a soft diffuse edge, 1 for a razor edge.
+- footprints / count - how many distinct footprints are visible in the sand.
+- waterline / height_m - how far up the beach the wet sand reaches, as a
   number between 0 and 1 of the visible beach depth. A number, never words.
-- background_cloud / count — distinct cloud masses on the horizon.
-- breath_vapour / present — whether visible breath is present.
-- hair_a / direction_deg — which way hair is being blown, same frame
+- background_cloud / count - distinct cloud masses on the horizon.
+- breath_vapour / present - whether visible breath is present.
+- hair_a / direction_deg - which way hair is being blown, same frame
   convention as shadows.
 
 Calibration, which matters more than any single reading:
 
 - A shadow shorter than about one and a half times its caster has no reliable
-  direction — it is a stub under the feet. Report direction_deg for it only
+  direction - it is a stub under the feet. Report direction_deg for it only
   with confidence at or below 0.3, or leave it out. Being confidently wrong
   about a short shadow is worse than saying nothing.
 - Long shadows are routinely underestimated. If a shadow runs off toward the
@@ -178,7 +178,7 @@ def _client(project_id: str, location: str) -> Client:
     """One client per project/location, held for the process lifetime.
 
     Caching is not an optimisation here, it is a correctness fix. Building the
-    client inline — `Client(...).models.generate_content(...)` — leaves no
+    client inline - `Client(...).models.generate_content(...)` - leaves no
     strong reference to it, so it can be collected while the request is still
     in flight and the underlying HTTP client closes underneath the call.
     """
@@ -186,7 +186,7 @@ def _client(project_id: str, location: str) -> Client:
 
 
 def _models(settings: Settings):
-    return _client(settings.project_id, settings.location).models
+    return _client(settings.project_id, settings.gemini_location).models
 
 
 def _image_part(image_bytes: bytes, mime_type: str = "image/png") -> types.Part:
@@ -210,7 +210,6 @@ def locate_figures(
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=FIGURE_SCHEMA,
-            temperature=0.0,
         ),
     )
     payload = json.loads(response.text)
@@ -236,7 +235,6 @@ def observe_frame(
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=OBSERVATION_SCHEMA,
-            temperature=0.0,
         ),
     )
     observations = json.loads(response.text).get("observations", [])
@@ -304,8 +302,8 @@ def adjudicate_pair_by_uri(
 ) -> dict[str, Any]:
     """Adjudicate two frames Gemini reads straight from GCS.
 
-    The agent only ever holds URIs — they are what `frame_observations` stores
-    — so pulling the bytes down just to send them back up would be wasted
+    The agent only ever holds URIs - they are what `frame_observations` stores
+    - so pulling the bytes down just to send them back up would be wasted
     round trips.
     """
     settings = settings or get_settings()
@@ -322,7 +320,6 @@ def adjudicate_pair_by_uri(
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=ADJUDICATION_SCHEMA,
-            temperature=0.0,
         ),
     )
     return json.loads(response.text)
@@ -360,7 +357,6 @@ def adjudicate_pair(
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=ADJUDICATION_SCHEMA,
-            temperature=0.0,
         ),
     )
     return json.loads(response.text)

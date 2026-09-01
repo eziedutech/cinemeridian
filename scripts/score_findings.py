@@ -7,13 +7,13 @@ checked, so this compares `continuity_findings` against
 caught, and what was missed.
 
 It also prints the findings that match nothing planted. Those are not
-automatically wrong — the scene contains real physical drift that nobody
+automatically wrong - the scene contains real physical drift that nobody
 planted, and a shoot split across twelve days produces genuine cross-take
 problems. But they are the number to watch: a tool that reports everything is
 one an editorial department turns off in a week.
 
-Read the key only from here. Nothing upstream — no prompt, no table, no file
-path — is allowed to see it, or the score means nothing.
+Read the key only from here. Nothing upstream - no prompt, no table, no file
+path - is allowed to see it, or the score means nothing.
 
 Usage:
     python scripts/score_findings.py --edit-version v14

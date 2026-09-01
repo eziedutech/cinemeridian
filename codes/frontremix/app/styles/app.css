@@ -2,7 +2,7 @@
  *
  * A grading suite is a dark room, so the console is dark: a bright page beside
  * the footage would wash out the very shadows the tool is arguing about. The
- * palette is deliberately narrow — sand, sea, and one warning amber — so a
+ * palette is deliberately narrow - sand, sea, and one warning amber - so a
  * severity colour means something when it appears.
  */
 
@@ -61,7 +61,6 @@ a { color: var(--sea); }
 .wordmark {
   font-size: 20px;
   font-weight: 600;
-  letter-spacing: 0.02em;
   margin: 0;
 }
 
@@ -107,8 +106,6 @@ a { color: var(--sea); }
 .panel h2 {
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
   color: var(--ink-dim);
   margin: 0 0 14px;
 }
@@ -194,8 +191,6 @@ button.ghost[aria-pressed="true"] {
 .severity {
   font-family: var(--mono);
   font-size: 10.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--ink-faint);
 }
 
@@ -271,8 +266,6 @@ button.ghost[aria-pressed="true"] {
 .tl-time { color: var(--ink-faint); }
 
 .tl-kind {
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   font-size: 10.5px;
 }
 

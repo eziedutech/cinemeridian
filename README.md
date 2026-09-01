@@ -24,9 +24,12 @@ README.md                    this file
 sql/
   001_schema.sql             the seven ClickHouse tables
 scripts/
-  generate_telemetry.py      simulated production data (ephemeris + weather)
+  generate_telemetry.py      simulated environment data (ephemeris + weather)
+  generate_production.py     the fictional scene: takes, edits, render configs
   apply_schema.py            create the schema (setup only)
+  create_agent_user.py       the restricted user the agent runs as (setup only)
   load_data.py               load the CSVs (setup only)
+  verify_mcp.py              prove ClickHouse is reached through MCP
 codes/
   backpy/                    FastAPI + Google ADK agent
     app/
@@ -124,8 +127,16 @@ All three are **setup only** — runtime access goes through MCP:
 
 ```bash
 python scripts/apply_schema.py
+python scripts/create_agent_user.py
 python scripts/generate_telemetry.py --out data/
+python scripts/generate_production.py --out data/
 python scripts/load_data.py --data data/
+```
+
+Then check that the part the track actually requires works:
+
+```bash
+python scripts/verify_mcp.py
 ```
 
 A ClickHouse Cloud service sleeps when idle, and the first request after that
@@ -138,12 +149,32 @@ Run the tests:
 python -m pytest codes/backpy
 ```
 
+## The agent cannot break anything
+
+`mcp-clickhouse` runs read-only unless write access is enabled, and the agent
+needs to write its own findings back through the same server it reads with.
+That flag is all-or-nothing, so the boundary is a grant instead: the agent
+connects as a ClickHouse user with `SELECT` across the database and `INSERT`
+into `continuity_findings` alone. `DROP`, `TRUNCATE`, and writes to any other
+table are refused by the server. Setup scripts use the admin user, which never
+has a model attached to it.
+
+## Measuring honestly
+
+The continuity errors in the demo scene are planted by
+`scripts/generate_production.py`, so there is an answer key
+(`assets/ground_truth.json`) and "the agent found N of M" is a claim that can
+be checked rather than asserted. The key never enters a prompt, a database
+table, or a file path — if the answers leak through a path, the score means
+nothing.
+
 ## Status
 
 Under active development for the hackathon. Working today: the physics engine
-and its tests, the ClickHouse schema, and the simulated-data generator. The
-agent, the vision tools, the console, and the Cloud Run deployment are in
-progress.
+and its tests, the ClickHouse schema with the simulated production loaded, the
+restricted agent user, and the agent querying ClickHouse through MCP — verified
+both locally and inside the container. The vision tools, the console, and the
+Cloud Run deployment are in progress.
 
 ## Licence
 

@@ -1,0 +1,48 @@
+{
+  "_warning": "ANSWER KEY. Never send this to a model, never load it into ClickHouse before evaluation, never encode it in a file path.",
+  "film_title": "The Tide Line",
+  "production_id": "prod_tideline",
+  "scene_id": "sc14",
+  "planted_errors": [
+    {
+      "id": "E1",
+      "type": "slate_error",
+      "take_id": "sc14_su03_t03",
+      "detail": "slate timestamp is 70 minutes earlier than the real capture time; shadows will not match the ephemeris",
+      "true_started_at": "2026-12-14 22:29:10",
+      "slated_started_at": "2026-12-14 21:19:10"
+    },
+    {
+      "id": "E2",
+      "type": "monotonic_violation",
+      "edit_version": "v14",
+      "entity": "footprints",
+      "detail": "su07 moved from cut position 7 (v13) to position 4 (v14); the footprint count now decreases across the cut"
+    },
+    {
+      "id": "E3",
+      "type": "cross_take_drift",
+      "edit_version": "v14",
+      "entity": "primary_shadow",
+      "detail": "su02 (shoot day 1, 16:00 local) cuts against su03 (shoot day 4, 16:20 local, twelve calendar days later). The azimuths are close, so a bearing check would pass; the shadow length ratio is not, because both sit past the point where length is the fragile axis"
+    },
+    {
+      "id": "E4",
+      "type": "physics_mismatch",
+      "shot_id": "sc14_cg01",
+      "detail": "CG key light is 14.2 deg off in azimuth and 740 K too cool for the master it cuts against",
+      "correct_key_light_azimuth_deg": 240.41,
+      "correct_key_light_elevation_deg": 25.08,
+      "correct_key_light_temp_k": 5279,
+      "reference_take_id": "sc14_su01_t03",
+      "core_hours_at_risk": 2110.0
+    },
+    {
+      "id": "E5",
+      "type": "asset_version_drift",
+      "shot_id": "sc14_cg01",
+      "detail": "beach_headland moved v012 -> v013 between render versions while the rest of the scene still references v012",
+      "core_hours_at_risk": 2110.0
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "_note": "Anchors measured by hand from the plate, not detected. Gemini's spatial localisation was tried first and was not accurate enough on figures this small: the boxes came back offset and about twice the true height. Vision is used for what it is good at - relative and magnitude judgements about shadows, counts and colour - and geometry is measured once, by a person, per plate.",
+  "plate": "su01.png",
+  "width": 1376,
+  "height": 768,
+  "horizon_y": 0.295,
+  "ground": {
+    "_note": "Foreshortening of the sand plane: how much one unit of depth away from camera compresses vertically compared with one unit across frame. Measured from the beach perspective in this plate.",
+    "foreshorten": 0.42
+  },
+  "figures": [
+    {
+      "label": "left",
+      "feet_x": 0.47,
+      "feet_y": 0.661,
+      "head_y": 0.514
+    },
+    {
+      "label": "right",
+      "feet_x": 0.521,
+      "feet_y": 0.656,
+      "head_y": 0.509
+    }
+  ]
+}

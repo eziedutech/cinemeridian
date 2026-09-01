@@ -8,6 +8,17 @@ tide — across takes, across edit versions, and across CG shots.
 
 Built for **Agentic Cinema: The Blockbuster Hackathon**, ClickHouse track.
 
+**Live:** [continuity console](https://cinemeridian-console-wswiws457a-uc.a.run.app) ·
+[API](https://cinemeridian-api-wswiws457a-uc.a.run.app/api/health)
+
+No login. Both services run on Cloud Run in `us-central1`. The one endpoint
+worth checking first is
+[`/api/health/mcp`](https://cinemeridian-api-wswiws457a-uc.a.run.app/api/health/mcp):
+it starts the `mcp-clickhouse` server inside the deployed container and reports
+whether the agent can actually reach ClickHouse through it. A ClickHouse Cloud
+service sleeps when idle, so the first request after a quiet spell can take the
+better part of a minute.
+
 ---
 
 ## Where things are
@@ -237,13 +248,31 @@ finding nobody planted that is nevertheless real: a nineteen-degree elevation
 jump across a cut. The two it misses are the mis-slated take and an asset
 version drift.
 
+## Deploying
+
+Two Cloud Run services, built by Cloud Build. Secrets go through Secret
+Manager, never through `--set-env-vars`, and there is no service account key
+file anywhere — the runtime uses the service account directly.
+
+```bash
+gcloud builds submit codes/backpy --tag us-central1-docker.pkg.dev/$PROJECT/cinemeridian/cinemeridian-api:latest
+```
+
+```bash
+gcloud run deploy cinemeridian-api --image us-central1-docker.pkg.dev/$PROJECT/cinemeridian/cinemeridian-api:latest --service-account cinemeridian-sa@$PROJECT.iam.gserviceaccount.com --allow-unauthenticated --memory 2Gi --cpu 2 --timeout 900 --concurrency 8 --set-secrets CLICKHOUSE_PASSWORD=clickhouse-password:latest,CLICKHOUSE_AGENT_PASSWORD=clickhouse-agent-password:latest
+```
+
+The timeout is 900 seconds because one investigation takes around three
+minutes and the 300-second default cuts it off. Concurrency is low because
+each request holds an MCP subprocess.
+
 ## Status
 
-Built and working: the physics engine and its tests, the ClickHouse schema with
-the simulated production loaded, the restricted agent user, the synthetic asset
-pipeline, the perception pass, the agent's investigation over MCP — verified
-locally and inside the container — and the console. Cloud Run deployment is the
-remaining step.
+Built, deployed and working: the physics engine and its tests, the ClickHouse
+schema with the simulated production loaded, the restricted agent user, the
+synthetic asset pipeline, the perception pass, the agent's investigation over
+MCP — verified locally, inside the container, and on Cloud Run — and the
+console. `mcp-clickhouse` starts in 2.2 seconds in the deployed service.
 
 ## Licence
 

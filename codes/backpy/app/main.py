@@ -511,10 +511,12 @@ async def compare(
             "camera_heading_change_deg": verdict.camera_heading_change_deg,
             "detectable_from_minutes": verdict.detectable_from_minutes,
         },
+        "reads_expected": READS_PER_FRAME,
         "frames": [
             {
                 "role": role,
                 "moment": when.strftime("%Y-%m-%d %H:%M:%S"),
+                "reads": _reads_in(observations),
                 "observations": observations,
                 "inferred": _inferred_payload(inferred),
             }
@@ -585,28 +587,34 @@ async def _observe(payload: bytes, role: str, settings: Any) -> list[dict[str, A
     readings = [r for r in attempts if not isinstance(r, BaseException)]
     failures = [r for r in attempts if isinstance(r, BaseException)]
 
-    if failures and not readings:
-        # Everything failed, which usually means a rate limit rather than a bad
-        # frame. One more try, alone and after a pause, before giving up.
-        await asyncio.sleep(RETRY_PAUSE_S)
-        try:
-            readings = [await read_once()]
-        except Exception as error:  # noqa: BLE001 - surfaced verbatim below
-            logger.exception("vision failed on the %s frame", role)
-            raise HTTPException(
-                status_code=502,
-                detail=(
-                    f"Could not read the {role} frame: the vision service returned "
-                    f"an error. This is on our side, not your clip. ({error})"
-                ),
-            ) from error
-    elif failures:
+    if failures:
+        # A shortfall is usually a rate limit rather than a bad frame, and
+        # carrying on with what came back is not good enough: in production a
+        # frame that got one read instead of three returned a single noisy
+        # measurement that flipped the verdict. So the missing reads are asked
+        # for again, one at a time and after a pause, rather than quietly
+        # settling for a weaker answer.
         logger.warning(
-            "%s of %s reads failed on the %s frame; using the %s that came back",
+            "%s of %s reads failed on the %s frame; retrying the shortfall",
             len(failures),
             READS_PER_FRAME,
             role,
-            len(readings),
+        )
+        for _ in range(READS_PER_FRAME - len(readings)):
+            await asyncio.sleep(RETRY_PAUSE_S)
+            try:
+                readings.append(await read_once())
+            except Exception as error:  # noqa: BLE001
+                logger.warning("a retried read of the %s frame failed too: %s", role, error)
+
+    if not readings:
+        logger.error("every read of the %s frame failed", role)
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"Could not read the {role} frame: the vision service returned an "
+                f"error on every attempt. This is on our side, not your clip."
+            ),
         )
 
     return _median_of(readings)
@@ -650,6 +658,17 @@ def _median_of(readings: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
         merged.append(middle)
 
     return merged
+
+
+def _reads_in(observations: list[dict[str, Any]]) -> int:
+    """How many times the frame was actually measured, at its weakest row.
+
+    Reported rather than kept quiet. A row built from one reading and a row
+    built from three look identical in the output, and only one of them is a
+    measurement, so the count travels with the answer.
+    """
+    counts = [row.get("reads") for row in observations if isinstance(row.get("reads"), int)]
+    return min(counts) if counts else 0
 
 
 def _representative(rows: list[dict[str, Any]]) -> dict[str, Any]:

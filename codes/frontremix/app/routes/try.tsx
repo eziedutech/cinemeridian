@@ -32,6 +32,7 @@ type Inferred = {
 type FrameResult = {
   role: string;
   moment: string;
+  reads: number;
   observations: Array<Record<string, unknown>>;
   inferred: Inferred;
 };
@@ -40,6 +41,7 @@ type CompareResult = {
   latitude: number;
   longitude: number;
   model: string;
+  reads_expected: number;
   verdict: {
     verdict: "matched" | "suspect" | "unmeasurable";
     headline: string;
@@ -432,6 +434,7 @@ function Known({
 
 function Verdict({ result }: { result: CompareResult }) {
   const verdict = result.verdict;
+  const short = result.frames.find((frame) => frame.reads < result.reads_expected);
   const tone =
     verdict.verdict === "matched"
       ? "verdict verdict-good"
@@ -454,6 +457,23 @@ function Verdict({ result }: { result: CompareResult }) {
           <p>{verdict.detail}</p>
         </div>
       </div>
+
+      {short ? (
+        <div className="verdict">
+          <div>
+            <b>Read fewer times than it should have been</b>
+            <p>
+              Each frame is measured {result.reads_expected} times and the middle
+              answer kept, because a single reading of one frame varies enough to
+              change the verdict.{" "}
+              {short.role === "outgoing" ? "The outgoing" : "The incoming"} frame
+              managed {short.reads} of {result.reads_expected}, so the answer above
+              rests on less evidence than it normally would. Running it again is
+              worth more here than usual.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       {verdict.camera_heading_change_deg != null ? (
         <div className="verdict">

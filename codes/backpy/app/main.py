@@ -78,9 +78,17 @@ async def lifespan(app: FastAPI):
     # startup spent on nothing.
     app.state.ingest_toolset = None
 
+    # ClickHouse Cloud suspends a service that has been idle, and comes back
+    # slower than any single request is willing to wait. A judge clicking the
+    # demo after a quiet hour would meet a timeout that blames the query rather
+    # than the nap. One trivial select every few minutes costs nothing and
+    # means the database is never asleep while this container is alive.
+    keep_awake = asyncio.create_task(_keep_clickhouse_awake())
+
     try:
         yield
     finally:
+        keep_awake.cancel()
         if app.state.ingest_toolset is not None:
             await app.state.ingest_toolset.close()
         await toolset.close()
@@ -229,9 +237,7 @@ async def _candidates_for(request: Any) -> str:
         production_id=request.production_id,
     )
     try:
-        # The first query on a fresh connection can pass mcp-clickhouse's thirty
-        # second limit, and this is often the first.
-        await agent_tools._run_via_mcp("SELECT 1")
+        await _wake_clickhouse(agent_tools._run_via_mcp)
         result = await agent_tools._run_via_mcp(sql)
     except Exception:  # noqa: BLE001
         logger.exception("could not compute candidates")
@@ -1168,6 +1174,58 @@ async def _ingest_tool() -> Any:
     return tool
 
 
+#: How often to remind ClickHouse that somebody is still here. Comfortably
+#: inside the idle window, and cheap: one row, no scan.
+KEEP_AWAKE_EVERY_S = 240.0
+
+
+async def _keep_clickhouse_awake() -> None:
+    """Ping the database on a slow loop for as long as the service is up.
+
+    Deliberately quiet about failure. This is a courtesy to the next request,
+    not a health check, and a ping that fails while nobody is asking anything
+    is not news; the request that actually needs the database does its own
+    waking and reports honestly when that does not work.
+    """
+    from app.tools import agent_tools
+
+    while True:
+        await asyncio.sleep(KEEP_AWAKE_EVERY_S)
+        try:
+            await agent_tools._run_via_mcp("SELECT 1")
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            logger.debug("keep-awake ping failed: %s", error)
+
+
+#: How many times to knock before deciding the database is not coming.
+#: ClickHouse Cloud suspends an idle service and takes tens of seconds to
+#: resume, while mcp-clickhouse abandons a query at thirty seconds and a
+#: connection read at thirty five. One attempt therefore always fails on a cold
+#: service, and the error it produces blames whatever statement happened to be
+#: first: the first visitor to arrive after a quiet spell was told ClickHouse
+#: had refused their write.
+WAKE_ATTEMPTS = 4
+WAKE_PAUSE_S = 3.0
+
+
+async def _wake_clickhouse(run: Any) -> bool:
+    """Knock until the database answers, or give up and say so."""
+    for attempt in range(WAKE_ATTEMPTS):
+        try:
+            result = await run("SELECT 1")
+            if "isError': True" not in result:
+                if attempt:
+                    logger.info("clickhouse woke on attempt %s", attempt + 1)
+                return True
+        except Exception as error:  # noqa: BLE001
+            logger.warning("waking clickhouse, attempt %s: %s", attempt + 1, error)
+        await asyncio.sleep(WAKE_PAUSE_S)
+    logger.error("clickhouse did not wake after %s attempts", WAKE_ATTEMPTS)
+    return False
+
+
 async def _write_project(statements: list[str]) -> int:
     """Run the inserts through MCP, which is the only way into the database.
 
@@ -1184,15 +1242,15 @@ async def _write_project(statements: list[str]) -> int:
     async def run(sql: str) -> str:
         return str(await tool.run_async(args={"query": sql}, tool_context=None))
 
-    # The first query on a fresh connection is slow, and mcp-clickhouse gives up
-    # on any query at thirty seconds. Measured: about six seconds locally and
-    # past thirty against ClickHouse Cloud from Cloud Run, which killed the
-    # first project every time on its first INSERT. So the connection is opened
-    # with something trivial and the real work starts warm.
-    try:
-        await run("SELECT 1")
-    except Exception:  # noqa: BLE001
-        logger.warning("the warming query failed; carrying on to the writes anyway")
+    if not await _wake_clickhouse(run):
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "The database is still waking up. ClickHouse Cloud suspends itself "
+                "when idle and takes longer to come back than a single request can "
+                "wait. Try again in a minute; it stays awake once it is up."
+            ),
+        )
 
     written = 0
     for statement in statements:

@@ -209,6 +209,38 @@ class AnalyzeRequest(BaseModel):
     longitude: float = Field(default=SCENE_LONGITUDE, ge=-180, le=180)
 
 
+async def _candidates_for(request: Any) -> str:
+    """Work out every contradiction in a project before the agent starts.
+
+    One query, a third of a second, the same answer every time. The agent used
+    to find these itself over sixteen round trips, which is six minutes of
+    somebody waiting for arithmetic a database does instantly.
+
+    A failure here is not fatal. The agent is told the table could not be built
+    and falls back to looking for candidates itself, which is slow and still
+    correct; refusing to run at all because a convenience failed would be worse.
+    """
+    from app.tools import agent_tools
+    from app.tools.candidates import as_table, candidate_query, count_of
+
+    sql = candidate_query(
+        edit_version=request.edit_version,
+        scene_id=request.scene_id,
+        production_id=request.production_id,
+    )
+    try:
+        # The first query on a fresh connection can pass mcp-clickhouse's thirty
+        # second limit, and this is often the first.
+        await agent_tools._run_via_mcp("SELECT 1")
+        result = await agent_tools._run_via_mcp(sql)
+    except Exception:  # noqa: BLE001
+        logger.exception("could not compute candidates")
+        return "(the candidate query failed; find the candidates yourself)"
+
+    logger.info("computed %s candidates for %s", count_of(result), request.edit_version)
+    return as_table(result)
+
+
 @app.post("/api/analyze")
 async def analyze(request: AnalyzeRequest):
     """Review an edit version, streaming the agent's reasoning as it goes.
@@ -220,15 +252,29 @@ async def analyze(request: AnalyzeRequest):
     """
     from sse_starlette.sse import EventSourceResponse
 
-    from app.prompts import ANALYSIS_TASK
+    from app.prompts import ANALYSIS_TASK, PROJECT_TASK
 
-    task = ANALYSIS_TASK.format(
-        edit_version=request.edit_version,
-        scene_id=request.scene_id,
-        production_id=request.production_id,
-        latitude=request.latitude,
-        longitude=request.longitude,
-    )
+    # A visitor's own project gets its candidates computed for it. The demo
+    # scene does not, deliberately: it is thirty takes with a scored answer key,
+    # and changing how the agent approaches it would invalidate a measured
+    # result. That switch happens once the same score has been shown to hold.
+    if request.production_id == PRODUCTION_ID:
+        task = ANALYSIS_TASK.format(
+            edit_version=request.edit_version,
+            scene_id=request.scene_id,
+            production_id=request.production_id,
+            latitude=request.latitude,
+            longitude=request.longitude,
+        )
+    else:
+        task = PROJECT_TASK.format(
+            edit_version=request.edit_version,
+            scene_id=request.scene_id,
+            production_id=request.production_id,
+            latitude=request.latitude,
+            longitude=request.longitude,
+            candidates=await _candidates_for(request),
+        )
 
     async def events():
         from google.adk.runners import InMemoryRunner

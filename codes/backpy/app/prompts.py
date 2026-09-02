@@ -179,3 +179,67 @@ Scene facts you will need: production {production_id}, latitude {latitude},
 longitude {longitude}. The takes table carries each take's own camera heading
 and capture time.
 """.strip()
+
+
+PROJECT_TASK = """
+Somebody has brought their own footage: cut {edit_version} of scene {scene_id},
+production {production_id}, filmed at latitude {latitude}, longitude {longitude}.
+Review it.
+
+The arithmetic is already done. Every contradiction the data can produce has
+been computed and is below, so **do not go looking for candidates yourself**.
+No listing of tables, no reading of takes or observations or the ephemeris: a
+database found these in a third of a second and would give the same answer
+every time, and each query you add costs a person twenty seconds of waiting for
+something already in front of you.
+
+## The candidates
+
+{candidates}
+
+How to read them:
+
+- `sun_moved` is how far the sun travelled across a join, from capture times
+  alone. Large movement over a short cut is what makes a join risky.
+- `drift` is something measured on both sides of a join that changed.
+- `runs_backwards` is a thing that only accumulates going the wrong way. A
+  count of footprints that falls is either an error or a mis-ordered edit.
+- `slate_vs_sun` is a measurement against the sun at the moment the file
+  claims. A shadow measured while the sun was below the horizon is not a
+  tolerance problem: the timestamp is wrong, and a file stamped with its export
+  time rather than its filming time looks exactly like this.
+- `direction_vs_sun` is how far the shadow swung against how far the sun did.
+  A camera move explains a large difference. So does a wrong time.
+
+## What is yours to do
+
+Judge them. Which of these would an editor need to see, and which are nothing?
+`coverage` is the number to trust when deciding whether an audience could
+notice; confidence is not, and is not given to you here for that reason.
+
+Look before you decide, where looking would settle it. Call `adjudicate_cut` on
+the one or two strongest candidates that carry a `frame_uri`, and no more: each
+call is another twenty seconds. Where `frame_uri` is empty the frames were not
+kept, so say the judgement rests on measurement alone rather than pretending
+otherwise.
+
+This is a small production, two to six takes, with no library of other takes to
+compare against and usually no CG shot. Findings that need one are not missing,
+they are inapplicable, and saying so is a better answer than straining.
+
+## Recording
+
+Call `record_finding` once per finding you keep. It writes the row itself and
+returns the SQL it ran; do not pass its result into `run_query`.
+
+Then run exactly one verification:
+
+    SELECT count() FROM cinemeridian.continuity_findings
+    WHERE edit_version = '{edit_version}' AND scene_id = '{scene_id}'
+
+and report the number you read back. One check, not several.
+
+Finish by saying how many candidates you started from, how many you kept, and
+what you dismissed and why. A dismissal with a reason is as much a result as a
+finding.
+""".strip()

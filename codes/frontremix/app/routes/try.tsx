@@ -3,6 +3,7 @@ import { json, type LoaderFunctionArgs } from "@remix-run/node";
 import { Link, useLoaderData } from "@remix-run/react";
 
 import { AgentTimeline, type TimelineEvent } from "~/components/AgentTimeline";
+import { FilmRoll } from "~/components/FilmRoll";
 import { FindingsMap } from "~/components/FindingsMap";
 import { apiBase, type Finding } from "~/lib/api";
 import {
@@ -321,10 +322,16 @@ export default function TryYourClips() {
       ) : null}
 
       {stage ? (
-        <p className="empty">
-          <span className="pulse" aria-hidden="true" />
-          {stage}…<span className="elapsed">{elapsed}s</span>
-        </p>
+        <FilmRoll
+          stage={stage}
+          elapsed={elapsed}
+          frames={ordered.flatMap((take) =>
+            [take.headFrame?.dataUrl, take.tailFrame?.dataUrl].filter(
+              (url): url is string => !!url,
+            ),
+          )}
+          latest={[...events].reverse().find((event) => event.kind === "tool_call")?.text}
+        />
       ) : null}
       {problem ? <p className="banner">{problem}</p> : null}
 

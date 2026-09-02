@@ -111,13 +111,11 @@ export default function TryYourClip() {
     setLon((current) => (current === "" ? longitude.toFixed(5) : current));
   }, []);
 
-  const compare = useCallback(async () => {
+  const runCompare = useCallback(async () => {
     const from = outgoing.tailFrame;
     const to = incoming.headFrame;
     if (!from || !to) return;
 
-    setProblem(null);
-    setResult(null);
     setBusy("Measuring the shadow in each frame and asking the sun");
 
     try {
@@ -152,13 +150,11 @@ export default function TryYourClip() {
     apiBase,
   ]);
 
-  const checkGround = useCallback(async () => {
+  const runGround = useCallback(async () => {
     const from = outgoing.tailFrame;
     const to = incoming.headFrame;
     if (!from || !to) return;
 
-    setProblem(null);
-    setGround(null);
     setBusy("Laying both frames under one grid and asking what changed");
 
     try {
@@ -192,7 +188,28 @@ export default function TryYourClip() {
   }
   if (lat === "" || lon === "") missing.push("the position where you filmed");
 
-  const ready = bothLoaded && missing.length === 0;
+  const canCheckLight = bothLoaded && missing.length === 0;
+
+  /**
+   * One button, because the question a person has is one question: do these
+   * two shots cut together?
+   *
+   * That it is answered by two independent checks is true and worth showing,
+   * but it is not the reader's problem to solve. So this runs whatever it can
+   * and says what it could not. The ground check needs only the frames and
+   * comes back in seconds, so it goes first and its answer appears while the
+   * slower one is still working. The light check needs times and a position,
+   * and when those are missing it is skipped and said to be skipped, rather
+   * than leaving a dead button on screen with no explanation.
+   */
+  const analyze = useCallback(async () => {
+    setProblem(null);
+    setResult(null);
+    setGround(null);
+    await runGround();
+    if (canCheckLight) await runCompare();
+  }, [runGround, runCompare, canCheckLight]);
+
 
   const working = busy ?? outgoing.busy ?? incoming.busy;
 
@@ -246,13 +263,19 @@ export default function TryYourClip() {
       </div>
 
       {bothLoaded ? (
-        <p className="next-step">
-          <strong>Both clips are in.</strong> Two checks below, and they are
-          independent.{" "}
-          <em>Check the ground</em> is ready now and needs nothing further.{" "}
-          <em>Check the light</em> needs {joinNicely(missing)}, because the sun&apos;s
-          angle cannot be computed without knowing when and where you stood.
-        </p>
+        <section className="panel act">
+          <div>
+            <h2 style={{ marginBottom: 6 }}>Does this cut hold?</h2>
+            <p className="hint" style={{ margin: 0, maxWidth: "70ch" }}>
+              {canCheckLight
+                ? "Two independent checks: what the sun says about when these were filmed, and what changed on the ground between them. Around a minute."
+                : `The ground check runs on the frames alone. The light check will be skipped, because it still needs ${joinNicely(missing)} and the sun's angle cannot be computed without it.`}
+            </p>
+          </div>
+          <button type="button" onClick={analyze} disabled={!!working}>
+            {working ? "Analysing…" : "Analyse this cut"}
+          </button>
+        </section>
       ) : null}
 
       <section className="panel">
@@ -283,12 +306,9 @@ export default function TryYourClip() {
               onChange={(event) => setLon(event.target.value)}
             />
           </label>
-          <button type="button" onClick={compare} disabled={!ready || !!working}>
-            {busy ? "Working…" : "Check the light"}
-          </button>
-          {!ready && bothLoaded ? (
-            <span className="hint" style={{ margin: 0 }}>
-              still needs {joinNicely(missing)}
+          {bothLoaded && !canCheckLight ? (
+            <span className="hint" style={{ margin: 0, alignSelf: "center" }}>
+              needed for the light check, which is skipped without it
             </span>
           ) : null}
         </div>
@@ -319,14 +339,6 @@ export default function TryYourClip() {
           two frames, so it works on footage that carries no metadata at all.
         </p>
         <div className="form-row">
-          <button
-            type="button"
-            className="ghost"
-            onClick={checkGround}
-            disabled={!outgoing.tailFrame || !incoming.headFrame || !!working}
-          >
-            Check the ground
-          </button>
           <span className="hint" style={{ margin: 0 }}>
             Both frames are laid side by side under one {DEFAULT_GRID.columns} by{" "}
             {DEFAULT_GRID.rows} grid and read {3} times. A cell is reported only

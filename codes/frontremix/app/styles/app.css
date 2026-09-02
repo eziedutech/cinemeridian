@@ -962,6 +962,19 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 .verdict-alarm { border-color: var(--alarm); }
 .verdict-alarm b { color: var(--alarm); }
 
+/* The one action. It sits between the clips and the answers, and it is the
+   only thing on the page that a person has to decide to press. */
+.act {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 26px;
+  flex-wrap: wrap;
+  border-color: color-mix(in srgb, var(--sand) 38%, transparent);
+}
+
+.act button { font-size: 14.5px; padding: 11px 22px; }
+
 /* What to do next, said at the moment it becomes possible */
 
 .next-step {

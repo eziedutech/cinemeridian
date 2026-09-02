@@ -470,7 +470,15 @@ def _since_clause(since: str) -> str:
         logger.warning("ignoring an unreadable since value: %r", since)
         return ""
     stamp = moment.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    return f"AND created_at >= toDateTime('{stamp}') "
+
+    # Compared as text, and deliberately. The select above aliases
+    # `toString(created_at)` back to `created_at`, and that alias shadows the
+    # column in the WHERE, so a DateTime comparison here fails with "no
+    # supertype for types String, DateTime" and the endpoint returns nothing at
+    # all. A timestamp written this way sorts lexicographically exactly as it
+    # sorts chronologically, so string comparison is not a workaround, it is
+    # the same answer by another route.
+    return f"AND created_at >= '{stamp}' "
 
 
 #: Frames rendered per take by scripts/composite_variants.py. The first is the

@@ -576,12 +576,16 @@ FRAME_DEADLINE_S = 45.0
 #: happened.
 READ_TIMEOUT_S = 40.0
 
-#: How far apart the first reads are fired. Three requests landing close
-#: together is itself what earns the rate limit here: measured against the
-#: deployed service, a burst of three returned one or two readings and the
-#: rest 429, while the same three spread out come back whole. The spacing
-#: costs a few seconds and buys the measurement it was asking for.
-READ_STAGGER_S = 4.0
+#: A small spread on the first reads, so three requests do not land in the same
+#: instant.
+#:
+#: Deliberately small. Four seconds was tried against the deployed service on
+#: the theory that this is a burst limit, and it changed nothing except adding
+#: forty seconds to every request: the readings came back short either way. The
+#: refusals are Vertex reporting exhausted shared capacity rather than a rate
+#: this side can smooth out, so the answer is the backoff below and reporting a
+#: short reading as short, not spacing.
+READ_STAGGER_S = 0.6
 
 
 async def _observe(payload: bytes, role: str, settings: Any) -> list[dict[str, Any]]:

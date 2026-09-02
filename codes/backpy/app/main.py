@@ -1004,11 +1004,17 @@ async def create_project(
         head_bytes = await _read_frame(head, f"take {index} head")
         tail_bytes = await _read_frame(tail, f"take {index} tail")
 
-        head_observations = await _observe(
-            head_bytes, f"take {index} head", settings, reads=1
+        # A frame the vision service refused is a gap in the evidence, not a
+        # reason to throw away the project. Twelve sequential calls for six
+        # takes means one rate limit anywhere would otherwise lose the lot, and
+        # a take with no measurements is still a take: it has a time, a place
+        # and a position in the cut, and the agent can say what it could not
+        # see rather than never being asked.
+        head_observations = await _observe_or_none(
+            head_bytes, f"take {index} head", settings
         )
-        tail_observations = await _observe(
-            tail_bytes, f"take {index} tail", settings, reads=1
+        tail_observations = await _observe_or_none(
+            tail_bytes, f"take {index} tail", settings
         )
 
         # Only if asked. Without a stored frame the agent has nothing to point
@@ -1054,6 +1060,17 @@ async def create_project(
         "longitude": longitude,
         "model": settings.model,
     }
+
+
+async def _observe_or_none(
+    payload: bytes, role: str, settings: Any
+) -> list[dict[str, Any]]:
+    """Measure a frame, or report nothing and carry on."""
+    try:
+        return await _observe(payload, role, settings, reads=1)
+    except HTTPException as refused:
+        logger.warning("no measurements for the %s: %s", role, refused.detail)
+        return []
 
 
 async def _store_frame(

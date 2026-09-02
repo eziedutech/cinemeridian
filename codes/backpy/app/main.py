@@ -562,13 +562,19 @@ READS_PER_FRAME = 3
 #: because the limit being hit is a burst limit: a couple of seconds usually
 #: clears it, and a flat twenty second pause turned a slow request into a five
 #: hundred second one that the browser gave up on.
-RETRY_PAUSES_S = (2.0, 5.0, 12.0)
+RETRY_PAUSES_S = (2.0, 5.0)
 
 #: How long a single frame may spend being measured before the answer is given
 #: on whatever readings came back. A person waiting on a page needs a bounded
 #: wait more than a perfect one, and a short reading is now reported as short
 #: rather than passed off as whole.
-FRAME_DEADLINE_S = 90.0
+FRAME_DEADLINE_S = 45.0
+
+#: How long any single read may take. Without this the frame deadline is only
+#: checked between attempts, so one call that hangs carries the whole request
+#: past three minutes and the browser resets the connection. Which is what
+#: happened.
+READ_TIMEOUT_S = 40.0
 
 #: How far apart the first reads are fired. Three requests landing in the same
 #: instant is itself a good way to earn a rate limit.
@@ -587,8 +593,11 @@ async def _observe(payload: bytes, role: str, settings: Any) -> list[dict[str, A
     async def read_once(delay: float = 0.0) -> list[dict[str, Any]]:
         if delay:
             await asyncio.sleep(delay)
-        return await asyncio.to_thread(
-            observe_frame, payload, mime_type="image/jpeg", settings=settings
+        return await asyncio.wait_for(
+            asyncio.to_thread(
+                observe_frame, payload, mime_type="image/jpeg", settings=settings
+            ),
+            timeout=READ_TIMEOUT_S,
         )
 
     started = time.monotonic()

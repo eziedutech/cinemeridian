@@ -101,6 +101,13 @@ class Settings:
     # scripts/create_agent_user.py has been run, in which case the agent falls
     # back to the admin user in read-only mode.
     agent_user: str = ""
+
+    #: The user that writes a visitor's own project into the tables. A separate
+    #: identity from the agent's on purpose: the agent reads the evidence and
+    #: writes findings, this writes the evidence and cannot write a finding.
+    #: A model that can edit the evidence it reasons about is not an auditor.
+    ingest_user: str = ""
+    ingest_password: str = ""
     agent_password: str = field(default="", repr=False)
 
     def mcp_clickhouse_env(self) -> dict[str, str]:
@@ -131,6 +138,27 @@ class Settings:
             # readonly mode" with nothing else to suggest a config problem.
             "CLICKHOUSE_ALLOW_WRITE_ACCESS": "true" if self.agent_user else "false",
         }
+
+    def mcp_clickhouse_ingest_env(self) -> dict[str, str]:
+        """The environment block for the second MCP subprocess, the writing one.
+
+        Same server, different credentials. It exists so that "the application
+        can write takes" and "the agent can write findings" are two separate
+        permissions held by two separate users, rather than one user with
+        both. Falls back to the agent's identity when no ingest user has been
+        created, which fails loudly at the grant rather than silently doing
+        something wider than intended.
+        """
+        env = self.mcp_clickhouse_env()
+        if self.ingest_user:
+            env["CLICKHOUSE_USER"] = self.ingest_user
+            env["CLICKHOUSE_PASSWORD"] = self.ingest_password
+            env["CLICKHOUSE_ALLOW_WRITE_ACCESS"] = "true"
+        return env
+
+    @property
+    def can_ingest_projects(self) -> bool:
+        return bool(self.ingest_user and self.ingest_password)
 
     @property
     def uses_restricted_user(self) -> bool:
@@ -163,5 +191,7 @@ def get_settings() -> Settings:
         clickhouse_secure=os.environ.get("CLICKHOUSE_SECURE", "true"),
         clickhouse_database=os.environ.get("CLICKHOUSE_DATABASE", "cinemeridian"),
         agent_user=os.environ.get("CLICKHOUSE_AGENT_USER", "").strip(),
+        ingest_user=os.environ.get("CLICKHOUSE_INGEST_USER", "").strip(),
+        ingest_password=os.environ.get("CLICKHOUSE_INGEST_PASSWORD", "").strip(),
         agent_password=os.environ.get("CLICKHOUSE_AGENT_PASSWORD", "").strip(),
     )

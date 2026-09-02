@@ -56,10 +56,20 @@ class GroundDifference:
     height: float
 
 
-PROMPT = """Two frames from one location that an editor wants to join at a cut.
+PROMPT = """Two frames that an editor wants to join at a cut.
 LEFT is the outgoing frame, the last moment of the shot being cut away from.
 RIGHT is the incoming frame, the first moment of the shot being cut to. Both
 carry the same grid, its cells labelled by column letter and row number.
+
+FIRST, the question that decides whether anything else applies. Could these two
+frames be the same place, a few minutes apart, seen from a different angle or a
+different distance? Judge the place, not the picture. A wide shot of a beach and
+a close shot of the same sand are one place and look nothing alike; a beach and a
+city street are two places however similar the light. If they are not the same
+place, this is a cut between scenes rather than inside one, continuity does not
+apply across it, and you must report no differences at all.
+
+If they are the same place, then look at the ground.
 
 The camera usually moves between two shots, so the same cell on each side covers
 almost, but not exactly, the same ground. Allow for that.
@@ -78,9 +88,37 @@ where it sits inside that cell as fractions from 0 to 1, where 0,0 is the top
 left of the cell and 1,1 the bottom right.
 
 Answer as JSON:
-{"differences": [{"cell": "C3", "present_in": "incoming", "what": "a dark smudge
+{"same_place": true, "place_note": "why, in one sentence",
+"differences": [{"cell": "C3", "present_in": "incoming", "what": "a dark smudge
 on the sand", "x_in_cell": 0.8, "y_in_cell": 0.7, "width_in_cell": 0.15,
 "height_in_cell": 0.12, "confidence": 0.0}], "verdict": "one sentence"}"""
+
+
+def parse_place(text: str) -> tuple[bool | None, str]:
+    """Whether the model thinks the two frames are the same place.
+
+    The gate in front of everything else, and the reason it exists is that
+    continuity is a rule about a scene, not about a film. A cut from a beach to
+    a city street is a scene change: the shadows will disagree, the ground will
+    disagree, and none of it is a fault. Comparing them anyway would bury a real
+    finding under a pile of differences that were all intended.
+
+    None means the model did not answer the question, which is treated as "carry
+    on" rather than "stop": a missing answer should not silently cancel an
+    analysis somebody asked for.
+    """
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None, ""
+    if not isinstance(parsed, dict):
+        return None, ""
+
+    value = parsed.get("same_place")
+    note = str(parsed.get("place_note", ""))[:300]
+    if isinstance(value, bool):
+        return value, note
+    return None, note
 
 
 def parse_reading(text: str, columns: int, rows: int) -> list[dict[str, Any]]:
@@ -204,3 +242,21 @@ def _fraction(value: Any, fallback: float) -> float:
     if not isinstance(value, (int, float)):
         return fallback
     return min(max(float(value), 0.0), 1.0)
+
+
+def agree_place(texts: list[str]) -> tuple[bool, str, int]:
+    """Do the readings agree that this is one place?
+
+    A majority, and a tie carries on. Stopping an analysis somebody asked for is
+    the more expensive mistake of the two: a scene change wrongly analysed
+    produces findings they can dismiss by looking, while an analysis wrongly
+    refused leaves them with nothing and no way to argue. So it takes more votes
+    to stop than to continue.
+    """
+    votes = [parse_place(text) for text in texts]
+    against = [note for value, note in votes if value is False]
+    for_it = [note for value, note in votes if value is True]
+
+    if len(against) > len(for_it):
+        return False, next((note for note in against if note), ""), len(against)
+    return True, next((note for note in for_it if note), ""), len(for_it)

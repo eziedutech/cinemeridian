@@ -157,3 +157,60 @@ class TestWhereTheBoxLands:
         box = agree(readings, 4, 3)[0]
         assert box.x >= 0.0
         assert box.y >= 0.0
+
+
+class TestThePlaceGate:
+    """Whether two shots are even in the same scene.
+
+    In front of everything else, because continuity is a rule about a scene and
+    not about a film. A cut from a beach to a city street is a scene change: the
+    shadows will disagree, the ground will disagree, and none of it is a fault.
+    Run the comparison anyway and a real finding drowns under a list of
+    differences that were all intended.
+    """
+
+    def answer(self, same=None, note="", **extra):
+        body = dict(extra)
+        if same is not None:
+            body["same_place"] = same
+        if note:
+            body["place_note"] = note
+        return json.dumps(body)
+
+    def test_reads_a_plain_yes_and_no(self):
+        from app.tools.ground import parse_place
+
+        assert parse_place(self.answer(True))[0] is True
+        assert parse_place(self.answer(False, "a beach and a city"))[0] is False
+        assert parse_place(self.answer(False, "a beach and a city"))[1] == "a beach and a city"
+
+    def test_an_unanswered_question_does_not_stop_the_analysis(self):
+        """None means the model said nothing, which must not silently cancel
+        work somebody asked for."""
+        from app.tools.ground import parse_place
+
+        assert parse_place(self.answer())[0] is None
+        assert parse_place("not json")[0] is None
+
+    def test_a_majority_against_stops_it(self):
+        from app.tools.ground import agree_place
+
+        same, note, votes = agree_place(
+            [self.answer(False, "beach and city"), self.answer(False), self.answer(True)]
+        )
+        assert same is False
+        assert votes == 2
+        assert note == "beach and city"
+
+    def test_a_tie_carries_on(self):
+        """It takes more votes to stop than to continue. A scene change wrongly
+        analysed gives findings a person can dismiss by looking; an analysis
+        wrongly refused leaves them nothing and no way to argue."""
+        from app.tools.ground import agree_place
+
+        assert agree_place([self.answer(True), self.answer(False)])[0] is True
+
+    def test_silence_from_every_reading_carries_on(self):
+        from app.tools.ground import agree_place
+
+        assert agree_place([self.answer(), self.answer(), "junk"])[0] is True

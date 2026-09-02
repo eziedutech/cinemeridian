@@ -53,9 +53,24 @@ MCP_STARTUP_TIMEOUT_S = 180.0
 CLICKHOUSE_TOOLS = ["run_query", "list_databases", "list_tables"]
 
 
-def build_clickhouse_toolset(settings: Settings | None = None) -> McpToolset:
-    """The mcp-clickhouse stdio server, as an ADK toolset."""
+def build_clickhouse_toolset(
+    settings: Settings | None = None, *, for_ingest: bool = False
+) -> McpToolset:
+    """The mcp-clickhouse stdio server, as an ADK toolset.
+
+    Two of these run. The agent's connects as the restricted reader that may
+    write findings and nothing else; the ingest one connects as the user that
+    may write a visitor's takes and nothing else. Same server, same protocol,
+    two identities, so what the model is permitted to do and what the
+    application is permitted to do are separate facts held by ClickHouse rather
+    than conventions held by us.
+    """
     settings = settings or get_settings()
+    env = (
+        settings.mcp_clickhouse_ingest_env()
+        if for_ingest
+        else settings.mcp_clickhouse_env()
+    )
     return McpToolset(
         connection_params=StdioConnectionParams(
             server_params=StdioServerParameters(
@@ -69,7 +84,7 @@ def build_clickhouse_toolset(settings: Settings | None = None) -> McpToolset:
                     MCP_CLICKHOUSE_PYTHON,
                     "mcp-clickhouse",
                 ],
-                env=settings.mcp_clickhouse_env(),
+                env=env,
             ),
             timeout=MCP_STARTUP_TIMEOUT_S,
         ),

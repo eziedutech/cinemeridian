@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import statistics
 import time
 import uuid
@@ -20,7 +21,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from starlette.datastructures import UploadFile as StarletteUploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -69,9 +71,18 @@ async def lifespan(app: FastAPI):
     app.state.clickhouse_toolset = toolset
     app.state.agent = build_agent(settings, clickhouse_toolset=toolset)
     app.state.runner = None
+
+    # A second connection to the same MCP server, as the user that may write a
+    # visitor's project and nothing else. Built lazily: most sessions never
+    # bring their own footage, and a subprocess nobody uses is ten seconds of
+    # startup spent on nothing.
+    app.state.ingest_toolset = None
+
     try:
         yield
     finally:
+        if app.state.ingest_toolset is not None:
+            await app.state.ingest_toolset.close()
         await toolset.close()
 
 
@@ -190,6 +201,13 @@ class AnalyzeRequest(BaseModel):
     edit_version: str = Field(default="v14", max_length=32)
     scene_id: str = Field(default="sc14", max_length=32)
 
+    # A visitor's own project lives in the same tables as the demo scene, so
+    # the agent has to be told which production it is looking at. Left at the
+    # demo's values these mean exactly what they always did.
+    production_id: str = Field(default=PRODUCTION_ID, max_length=48)
+    latitude: float = Field(default=SCENE_LATITUDE, ge=-90, le=90)
+    longitude: float = Field(default=SCENE_LONGITUDE, ge=-180, le=180)
+
 
 @app.post("/api/analyze")
 async def analyze(request: AnalyzeRequest):
@@ -207,9 +225,9 @@ async def analyze(request: AnalyzeRequest):
     task = ANALYSIS_TASK.format(
         edit_version=request.edit_version,
         scene_id=request.scene_id,
-        production_id=PRODUCTION_ID,
-        latitude=SCENE_LATITUDE,
-        longitude=SCENE_LONGITUDE,
+        production_id=request.production_id,
+        latitude=request.latitude,
+        longitude=request.longitude,
     )
 
     async def events():
@@ -635,7 +653,9 @@ READ_TIMEOUT_S = 40.0
 READ_STAGGER_S = 0.6
 
 
-async def _observe(payload: bytes, role: str, settings: Any) -> list[dict[str, Any]]:
+async def _observe(
+    payload: bytes, role: str, settings: Any, reads: int = READS_PER_FRAME
+) -> list[dict[str, Any]]:
     """Measure one frame several times and keep the middle answer.
 
     A vision call can also fail for reasons that have nothing to do with the
@@ -660,7 +680,7 @@ async def _observe(payload: bytes, role: str, settings: Any) -> list[dict[str, A
     # Losing a whole frame because one of three came back 429 would throw away
     # two good measurements.
     attempts = await asyncio.gather(
-        *(read_once(index * READ_STAGGER_S) for index in range(READS_PER_FRAME)),
+        *(read_once(index * READ_STAGGER_S) for index in range(reads)),
         return_exceptions=True,
     )
     readings = [r for r in attempts if not isinstance(r, BaseException)]
@@ -671,7 +691,7 @@ async def _observe(payload: bytes, role: str, settings: Any) -> list[dict[str, A
     # verdict. So the missing reads are asked for again, backing off, until they
     # are filled or the frame runs out of time.
     for pause in RETRY_PAUSES_S:
-        if len(readings) >= READS_PER_FRAME:
+        if len(readings) >= reads:
             break
         if time.monotonic() - started > FRAME_DEADLINE_S:
             break
@@ -680,12 +700,9 @@ async def _observe(payload: bytes, role: str, settings: Any) -> list[dict[str, A
         except Exception as error:  # noqa: BLE001
             logger.warning("a retried read of the %s frame failed: %s", role, error)
 
-    if len(readings) < READS_PER_FRAME:
+    if len(readings) < reads:
         logger.warning(
-            "the %s frame was measured %s times of %s",
-            role,
-            len(readings),
-            READS_PER_FRAME,
+            "the %s frame was measured %s times of %s", role, len(readings), reads
         )
 
     if not readings:
@@ -820,7 +837,7 @@ async def ground(
     two pictures it can see at once is a different question, and on a planted
     mark it answered the same way eight times out of eight.
     """
-    from app.tools.ground import AGREEMENT, READS, agree
+    from app.tools.ground import AGREEMENT, READS, agree, agree_place, parse_reading
 
     if not 2 <= columns <= 8 or not 2 <= rows <= 8:
         raise HTTPException(status_code=400, detail="grid must be between 2 and 8 each way")
@@ -828,8 +845,8 @@ async def ground(
     payload = await _read_frame(pair, "pair")
     settings = get_settings()
 
-    readings = await _read_pair(payload, settings, columns, rows)
-    if not readings:
+    answers = await _read_pair(payload, settings)
+    if not answers:
         raise HTTPException(
             status_code=502,
             detail=(
@@ -838,13 +855,24 @@ async def ground(
             ),
         )
 
-    differences = agree(readings, columns, rows)
+    # The gate. Continuity is a rule about a scene, so two shots in different
+    # places are a scene change rather than a fault, and everything downstream
+    # of here would be measuring a difference that was intended.
+    same_place, place_note, place_votes = agree_place(answers)
+    readings = (
+        [parse_reading(text, columns, rows) for text in answers] if same_place else []
+    )
+
+    differences = agree(readings, columns, rows) if same_place else []
     return {
         "grid": {"columns": columns, "rows": rows},
-        "reads": len(readings),
+        "reads": len(answers),
         "reads_expected": READS,
         "agreement_needed": AGREEMENT,
         "model": settings.model,
+        "same_place": same_place,
+        "place_note": place_note,
+        "place_votes": place_votes,
         "differences": [
             {
                 "cell": item.cell,
@@ -863,9 +891,7 @@ async def ground(
     }
 
 
-async def _read_pair(
-    payload: bytes, settings: Any, columns: int, rows: int
-) -> list[list[dict[str, Any]]]:
+async def _read_pair(payload: bytes, settings: Any) -> list[str]:
     """Ask the same question a few times and keep the answers that came back.
 
     Same shape as the frame reads: sent together, allowed to fail apart, and a
@@ -873,17 +899,16 @@ async def _read_pair(
     somebody is told their footage has a continuity error in it, which is not a
     thing to settle on a single opinion.
     """
-    from app.tools.ground import PROMPT, READS, parse_reading
+    from app.tools.ground import PROMPT, READS
     from app.tools.vision import compare_pair
 
-    async def read_once(delay: float) -> list[dict[str, Any]]:
+    async def read_once(delay: float) -> str:
         if delay:
             await asyncio.sleep(delay)
-        text = await asyncio.wait_for(
+        return await asyncio.wait_for(
             asyncio.to_thread(compare_pair, payload, PROMPT, settings),
             timeout=READ_TIMEOUT_S,
         )
-        return parse_reading(text, columns, rows)
 
     attempts = await asyncio.gather(
         *(read_once(index * READ_STAGGER_S) for index in range(READS)),
@@ -893,6 +918,172 @@ async def _read_pair(
     if len(readings) < READS:
         logger.warning("the pair was read %s times of %s", len(readings), READS)
     return readings
+
+
+@app.post("/api/project")
+async def create_project(
+    request: Request,
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+) -> dict[str, Any]:
+    """Turn a visitor's clips into a production the agent can investigate.
+
+    The demo scene is convincing because there is a database under it, and the
+    agent's power is that it can ask questions across the whole of it at once.
+    A page that copied the look of that from two vision calls would be a
+    pretence. So this writes the real thing: takes, the observations read from
+    each clip's first and last frame, an ephemeris computed for the time and
+    place the files claim, and the cut order. Then the same agent runs on it,
+    through the same MCP server, and finds what it finds.
+
+    Frames arrive as `take_1_head`, `take_1_tail`, `take_2_head` and so on,
+    each with a `take_1_recorded_at` and a `take_1_duration`. Numbered rather
+    than listed because multipart has no natural way to say "an array of
+    objects", and a flat naming scheme is easier to read in a browser's network
+    tab than a JSON blob smuggled through a form field.
+
+    What comes back is the identifiers. Analysis is a separate call, because it
+    takes minutes and streams.
+    """
+    from app.tools.project import MAX_TAKES, MIN_TAKES, Project, TakeInput, build_statements
+
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        raise HTTPException(status_code=400, detail="latitude or longitude out of range")
+
+    form = await request.form()
+    indices = sorted(
+        {
+            int(match.group(1))
+            for key in form
+            if (match := re.match(r"take_(\d+)_head$", key))
+        }
+    )
+    if not MIN_TAKES <= len(indices) <= MAX_TAKES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"bring between {MIN_TAKES} and {MAX_TAKES} takes; got {len(indices)}",
+        )
+
+    settings = get_settings()
+    project = Project.new()
+    takes = []
+
+    for position, index in enumerate(indices, start=1):
+        head = form.get(f"take_{index}_head")
+        tail = form.get(f"take_{index}_tail")
+        if not isinstance(head, StarletteUploadFile) or not isinstance(
+            tail, StarletteUploadFile
+        ):
+            raise HTTPException(
+                status_code=400, detail=f"take {index} is missing a head or tail frame"
+            )
+
+        recorded_at = _parse_moment(str(form.get(f"take_{index}_recorded_at", "")), f"take {index}")
+        try:
+            duration = float(form.get(f"take_{index}_duration", 0) or 0)
+        except (TypeError, ValueError):
+            duration = 0.0
+
+        # One reading per frame here, not the three the pairwise check uses.
+        # That is what the demo scene's own ingest does, and a project of six
+        # takes would otherwise be thirty six vision calls against a quota that
+        # has already refused six.
+        head_observations = await _observe(
+            await _read_frame(head, f"take {index} head"), f"take {index} head", settings, reads=1
+        )
+        tail_observations = await _observe(
+            await _read_frame(tail, f"take {index} tail"), f"take {index} tail", settings, reads=1
+        )
+
+        takes.append(
+            TakeInput(
+                index=position,
+                recorded_at=recorded_at,
+                duration_seconds=duration,
+                head_observations=head_observations,
+                tail_observations=tail_observations,
+            )
+        )
+
+    statements = build_statements(project, takes, latitude, longitude)
+    written = await _write_project(statements)
+
+    return {
+        "production_id": project.production_id,
+        "scene_id": project.scene_id,
+        "edit_version": project.edit_version,
+        "takes": [
+            {
+                "take_id": f"{project.scene_id}_t{take.index:02d}",
+                "cut_position": take.index,
+                "recorded_at": take.recorded_at.strftime("%Y-%m-%d %H:%M:%S"),
+                "observations": len(take.head_observations) + len(take.tail_observations),
+            }
+            for take in takes
+        ],
+        "rows_written": written,
+        "latitude": latitude,
+        "longitude": longitude,
+        "model": settings.model,
+    }
+
+
+async def _ingest_tool() -> Any:
+    """The `run_query` tool on the writing connection, started on first use."""
+    settings = get_settings()
+    if not settings.can_ingest_projects:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "This deployment has no ingest user, so it cannot accept projects. "
+                "Run scripts/create_ingest_user.py and redeploy."
+            ),
+        )
+
+    if app.state.ingest_toolset is None:
+        from app.agent import build_clickhouse_toolset
+
+        app.state.ingest_toolset = build_clickhouse_toolset(settings, for_ingest=True)
+
+    tools = {tool.name: tool for tool in await app.state.ingest_toolset.get_tools()}
+    tool = tools.get("run_query")
+    if tool is None:
+        raise HTTPException(status_code=502, detail="mcp-clickhouse exposes no run_query")
+    return tool
+
+
+async def _write_project(statements: list[str]) -> int:
+    """Run the inserts through MCP, which is the only way into the database.
+
+    A direct ClickHouse client here would be simpler and would also make the
+    claim this project rests on untrue: that every database access, the agent's
+    and the application's alike, goes through the same MCP server.
+
+    On the writing connection, whose user holds INSERT on four tables and can
+    touch nothing else. The agent could not run these statements if it tried,
+    which is the point.
+    """
+    tool = await _ingest_tool()
+
+    written = 0
+    for statement in statements:
+        if not statement:
+            continue
+        try:
+            result = str(await tool.run_async(args={"query": statement}, tool_context=None))
+        except Exception as error:  # noqa: BLE001
+            logger.exception("failed to write a project statement")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Could not write the project to ClickHouse: {error}",
+            ) from error
+        if "isError': True" in result:
+            logger.error("clickhouse refused a project insert: %s", result[:300])
+            raise HTTPException(
+                status_code=502, detail=f"ClickHouse refused a write: {result[:200]}"
+            )
+        written += 1
+    return written
 
 
 @app.get("/api/frame")

@@ -385,3 +385,31 @@ def adjudicate_pair(
         ),
     )
     return json.loads(response.text)
+
+
+def compare_pair(
+    image_bytes: bytes,
+    prompt: str,
+    settings: Settings | None = None,
+    *,
+    mime_type: str = "image/jpeg",
+) -> str:
+    """Ask one question about one image that happens to contain two frames.
+
+    Deliberately thin. Everything about what is being compared, and how the
+    answer should be shaped, lives in the prompt the caller passes; this only
+    carries it to the model and hands back the raw text. The alternative was a
+    second observe-shaped function with its own schema, and a schema here would
+    have been a third place for the shape of a ground difference to be written
+    down and to drift out of step with the other two.
+    """
+    settings = settings or get_settings()
+    response = _models(settings).generate_content(
+        model=settings.model,
+        contents=[_image_part(image_bytes, mime_type), prompt],
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            safety_settings=SAFETY_SETTINGS,
+        ),
+    )
+    return response.text or ""

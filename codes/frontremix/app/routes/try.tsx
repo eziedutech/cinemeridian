@@ -11,6 +11,7 @@ import {
   extractHeadAndTail,
   type ExtractedFrame,
 } from "~/lib/extract";
+import { composePair, DEFAULT_GRID } from "~/lib/gridpair";
 import { readMp4Metadata, type Mp4Metadata } from "~/lib/mp4meta";
 
 export async function loader(_args: LoaderFunctionArgs) {
@@ -58,6 +59,23 @@ type CompareResult = {
   frames: FrameResult[];
 };
 
+type GroundDifference = {
+  cell: string;
+  what: string;
+  present_in: "outgoing" | "incoming";
+  seen_in_reads: number;
+  box: { x: number; y: number; width: number; height: number };
+};
+
+type GroundResult = {
+  grid: { columns: number; rows: number };
+  reads: number;
+  reads_expected: number;
+  agreement_needed: number;
+  model: string;
+  differences: GroundDifference[];
+};
+
 /**
  * Point the tool at two shots of your own and ask whether they cut together.
  *
@@ -81,6 +99,7 @@ export default function TryYourClip() {
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [result, setResult] = useState<CompareResult | null>(null);
+  const [ground, setGround] = useState<GroundResult | null>(null);
 
   // Whichever clip volunteers a position first fills the shared pair. A cut
   // inside a scene is one place, so asking for it twice would be asking a
@@ -132,6 +151,34 @@ export default function TryYourClip() {
     lon,
     apiBase,
   ]);
+
+  const checkGround = useCallback(async () => {
+    const from = outgoing.tailFrame;
+    const to = incoming.headFrame;
+    if (!from || !to) return;
+
+    setProblem(null);
+    setGround(null);
+    setBusy("Laying both frames under one grid and asking what changed");
+
+    try {
+      const body = new FormData();
+      body.append("pair", await composePair(from.blob, to.blob), "pair.jpg");
+      body.append("columns", String(DEFAULT_GRID.columns));
+      body.append("rows", String(DEFAULT_GRID.rows));
+
+      const response = await fetch(`${apiBase}/api/ground`, { method: "POST", body });
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(`the API said ${response.status}: ${detail.slice(0, 300)}`);
+      }
+      setGround((await response.json()) as GroundResult);
+    } catch (caught) {
+      setProblem(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setBusy(null);
+    }
+  }, [outgoing.tailFrame, incoming.headFrame, apiBase]);
 
   const ready =
     !!outgoing.tailFrame &&
@@ -221,7 +268,7 @@ export default function TryYourClip() {
             />
           </label>
           <button type="button" onClick={compare} disabled={!ready || !!working}>
-            {busy ? "Working…" : "Check the cut"}
+            {busy ? "Working…" : "Check the light"}
           </button>
         </div>
 
@@ -241,6 +288,39 @@ export default function TryYourClip() {
         </p>
       ) : null}
       {problem ? <p className="banner">{problem}</p> : null}
+
+      <section className="panel">
+        <h2>What changed on the ground</h2>
+        <p className="hint" style={{ maxWidth: "78ch" }}>
+          A separate question, asked separately. The sun says when a shot was
+          filmed and will not be argued with; this says what is lying on the
+          ground, and is a judgement. It needs no times and no position, only the
+          two frames, so it works on footage that carries no metadata at all.
+        </p>
+        <div className="form-row">
+          <button
+            type="button"
+            className="ghost"
+            onClick={checkGround}
+            disabled={!outgoing.tailFrame || !incoming.headFrame || !!working}
+          >
+            Check the ground
+          </button>
+          <span className="hint" style={{ margin: 0 }}>
+            Both frames are laid side by side under one {DEFAULT_GRID.columns} by{" "}
+            {DEFAULT_GRID.rows} grid and read {3} times. A cell is reported only
+            if more than one reading saw it.
+          </span>
+        </div>
+
+        {ground ? (
+          <Ground
+            result={ground}
+            outgoing={outgoing.tailFrame?.dataUrl ?? null}
+            incoming={incoming.headFrame?.dataUrl ?? null}
+          />
+        ) : null}
+      </section>
 
       {result ? <Verdict result={result} /> : null}
 
@@ -558,4 +638,101 @@ function Verdict({ result }: { result: CompareResult }) {
 function toLocalInput(date: Date): string {
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+/**
+ * Where on the frame the difference is, drawn rather than described.
+ *
+ * "A dark smudge in C3" asks a person to find the cell, then find the mark
+ * inside it. A box drawn over the frame asks them to look. The box comes back
+ * in fractions of the frame, so it lands correctly whatever size the image is
+ * displayed at, which is why it is positioned in percentages rather than pixels.
+ */
+function Ground({
+  result,
+  outgoing,
+  incoming,
+}: {
+  result: GroundResult;
+  outgoing: string | null;
+  incoming: string | null;
+}) {
+  const short = result.reads < result.reads_expected;
+
+  if (result.differences.length === 0) {
+    return (
+      <>
+        <div className="verdict">
+          <div>
+            <b>Nothing on the ground disagrees</b>
+            <p>
+              Read {result.reads} times under a {result.grid.columns} by{" "}
+              {result.grid.rows} grid, no cell was called different by more than
+              one reading. That is not a guarantee that nothing changed: small
+              marks and anything outside the frame are beyond this, and it is
+              looking at the ground only, not at the people or the sky.
+            </p>
+          </div>
+        </div>
+        {short ? <ShortRead result={result} /> : null}
+      </>
+    );
+  }
+
+  return (
+    <>
+      {short ? <ShortRead result={result} /> : null}
+      {result.differences.map((difference) => {
+        const frame = difference.present_in === "incoming" ? incoming : outgoing;
+        return (
+          <div key={`${difference.cell}-${difference.present_in}`} className="ground-find">
+            <div className="ground-shot">
+              {frame ? (
+                <>
+                  <img src={frame} alt={`${difference.present_in} frame`} />
+                  <span
+                    className="ground-box"
+                    style={{
+                      left: `${difference.box.x * 100}%`,
+                      top: `${difference.box.y * 100}%`,
+                      width: `${difference.box.width * 100}%`,
+                      height: `${difference.box.height * 100}%`,
+                    }}
+                  />
+                </>
+              ) : null}
+            </div>
+            <div>
+              <b>
+                {difference.cell} · present in the {difference.present_in} frame
+              </b>
+              <p>{difference.what}</p>
+              <p className="hint" style={{ marginBottom: 0 }}>
+                Seen by {difference.seen_in_reads} of {result.reads} readings.
+                Measured by {result.model} on both frames at once, which is why
+                it is a comparison rather than two measurements subtracted from
+                each other.
+              </p>
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function ShortRead({ result }: { result: GroundResult }) {
+  return (
+    <div className="verdict">
+      <div>
+        <b>Read fewer times than it should have been</b>
+        <p>
+          The pair was read {result.reads} times of {result.reads_expected}, so
+          the agreement of {result.agreement_needed} readings that a finding
+          needs rested on less evidence than usual. Running it again is worth
+          more here than it normally would be.
+        </p>
+      </div>
+    </div>
+  );
 }

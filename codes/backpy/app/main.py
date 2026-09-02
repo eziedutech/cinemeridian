@@ -800,6 +800,101 @@ def _inferred_payload(inferred: Any) -> dict[str, Any]:
     }
 
 
+@app.post("/api/ground")
+async def ground(
+    pair: UploadFile = File(...),
+    columns: int = Form(4),
+    rows: int = Form(3),
+) -> dict[str, Any]:
+    """What is on the ground in one shot and not the other.
+
+    The second signal, and deliberately not part of `/api/compare`. The sun
+    answers when a shot was filmed and will not be argued with; this answers
+    what is lying on the sand, and is a judgement. The two are reported side by
+    side and never blended, so a soft answer here cannot dilute a hard one there.
+
+    What arrives is a single image the browser has already assembled: both
+    frames beside each other under a shared grid. That is the whole trick.
+    Asking a model to describe two frames and then differencing the descriptions
+    is what produced every wobble measured in this project; asking it to compare
+    two pictures it can see at once is a different question, and on a planted
+    mark it answered the same way eight times out of eight.
+    """
+    from app.tools.ground import AGREEMENT, READS, agree
+
+    if not 2 <= columns <= 8 or not 2 <= rows <= 8:
+        raise HTTPException(status_code=400, detail="grid must be between 2 and 8 each way")
+
+    payload = await _read_frame(pair, "pair")
+    settings = get_settings()
+
+    readings = await _read_pair(payload, settings, columns, rows)
+    if not readings:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Could not read the pair: the vision service returned an error on "
+                "every attempt. This is on our side, not your clips."
+            ),
+        )
+
+    differences = agree(readings, columns, rows)
+    return {
+        "grid": {"columns": columns, "rows": rows},
+        "reads": len(readings),
+        "reads_expected": READS,
+        "agreement_needed": AGREEMENT,
+        "model": settings.model,
+        "differences": [
+            {
+                "cell": item.cell,
+                "what": item.what,
+                "present_in": item.present_in,
+                "seen_in_reads": item.seen_in_reads,
+                "box": {
+                    "x": item.x,
+                    "y": item.y,
+                    "width": item.width,
+                    "height": item.height,
+                },
+            }
+            for item in differences
+        ],
+    }
+
+
+async def _read_pair(
+    payload: bytes, settings: Any, columns: int, rows: int
+) -> list[list[dict[str, Any]]]:
+    """Ask the same question a few times and keep the answers that came back.
+
+    Same shape as the frame reads: sent together, allowed to fail apart, and a
+    shortfall left visible rather than hidden. One answer here decides whether
+    somebody is told their footage has a continuity error in it, which is not a
+    thing to settle on a single opinion.
+    """
+    from app.tools.ground import PROMPT, READS, parse_reading
+    from app.tools.vision import compare_pair
+
+    async def read_once(delay: float) -> list[dict[str, Any]]:
+        if delay:
+            await asyncio.sleep(delay)
+        text = await asyncio.wait_for(
+            asyncio.to_thread(compare_pair, payload, PROMPT, settings),
+            timeout=READ_TIMEOUT_S,
+        )
+        return parse_reading(text, columns, rows)
+
+    attempts = await asyncio.gather(
+        *(read_once(index * READ_STAGGER_S) for index in range(READS)),
+        return_exceptions=True,
+    )
+    readings = [r for r in attempts if not isinstance(r, BaseException)]
+    if len(readings) < READS:
+        logger.warning("the pair was read %s times of %s", len(readings), READS)
+    return readings
+
+
 @app.get("/api/frame")
 async def frame(uri: str):
     """Stream one frame out of GCS.

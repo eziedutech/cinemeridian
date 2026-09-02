@@ -425,6 +425,39 @@ the compression flattens real differences too, so this errs towards missing an
 error rather than inventing one, which is the right direction for a tool an
 editor is meant to trust.
 
+### The second signal: what changed on the ground
+
+The sun answers when a shot was filmed and will not be argued with. It has
+nothing to say about a bag left in frame, a mark on the sand, or footprints that
+went missing between takes. So `/try` carries a second check, reported beside
+the physics and never blended into it, because a soft answer must not be allowed
+to dilute a hard one.
+
+The method is one image rather than two. Every wobble measured in this project
+came from describing two frames separately and then differencing the
+descriptions: the same shadow read 1.2 and then 2.6 on an unchanged frame. Put
+both frames side by side under a shared grid and the model is no longer
+measuring twice, it is comparing, which is a different and far easier question.
+
+That difference is measurable. A mark was planted on the sand of one frame,
+small enough that a person had to point at it with an arrow. Across three grid
+sizes and eight runs the model named the same cell every time, with no false
+positives, and it did not report the footprint texture differences that were
+expected to drown it. Nothing else in this project has been that repeatable.
+
+Two things follow from the measurements rather than from taste. The grid is four
+across and three down, not finer: a finer grid buys no precision, because the
+model volunteers where inside a cell a mark sits without being asked, while a
+mark straddling a boundary risks being reported as gone from one cell and
+arrived in another. And confidence came back as 0.85 on every single run, so it
+carries no information and is not used as a filter, which is the same lesson the
+frame observations taught.
+
+The finding is drawn on the frame rather than described. "A dark smudge in C3"
+asks a reader to find the cell and then hunt inside it; a box asks them to look.
+
+### Tests
+
 The two browser-side pieces have their own tests, run with `npm run test:lib`
 in `codes/frontremix`. The MP4 reader is driven against containers assembled
 byte by byte rather than against a real clip: they carry no video at all, which

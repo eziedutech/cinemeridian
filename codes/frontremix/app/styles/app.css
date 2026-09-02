@@ -962,6 +962,44 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 .verdict-alarm { border-color: var(--alarm); }
 .verdict-alarm b { color: var(--alarm); }
 
+/* A ground difference, shown where it is rather than named */
+
+.ground-find {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  padding: 18px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.ground-find b { display: block; font-size: 14.5px; margin-bottom: 6px; }
+.ground-find p { margin: 0 0 8px; font-size: 13.5px; color: var(--ink-dim); line-height: 1.6; }
+
+.ground-shot {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #000;
+}
+
+.ground-shot img { width: 100%; display: block; }
+
+/* Positioned in percentages so it stays on the mark at any display size. The
+   glow is outside the box, so the box never covers what it is pointing at. */
+.ground-box {
+  position: absolute;
+  border: 2px solid var(--alarm);
+  border-radius: 3px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.28);
+  pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  .ground-find { grid-template-columns: 1fr; }
+}
+
 /* Odds and ends */
 
 .empty {

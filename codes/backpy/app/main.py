@@ -1135,18 +1135,40 @@ async def _write_project(statements: list[str]) -> int:
     """
     tool = await _ingest_tool()
 
+    async def run(sql: str) -> str:
+        return str(await tool.run_async(args={"query": sql}, tool_context=None))
+
+    # The first query on a fresh connection is slow, and mcp-clickhouse gives up
+    # on any query at thirty seconds. Measured: about six seconds locally and
+    # past thirty against ClickHouse Cloud from Cloud Run, which killed the
+    # first project every time on its first INSERT. So the connection is opened
+    # with something trivial and the real work starts warm.
+    try:
+        await run("SELECT 1")
+    except Exception:  # noqa: BLE001
+        logger.warning("the warming query failed; carrying on to the writes anyway")
+
     written = 0
     for statement in statements:
         if not statement:
             continue
-        try:
-            result = str(await tool.run_async(args={"query": statement}, tool_context=None))
-        except Exception as error:  # noqa: BLE001
-            logger.exception("failed to write a project statement")
-            raise HTTPException(
-                status_code=502,
-                detail=f"Could not write the project to ClickHouse: {error}",
-            ) from error
+        result = ""
+        for attempt in range(2):
+            try:
+                result = await run(statement)
+            except Exception as error:  # noqa: BLE001
+                logger.exception("failed to write a project statement")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Could not write the project to ClickHouse: {error}",
+                ) from error
+            # A timeout is worth one more go; a refusal is not, because the
+            # second answer would be the same refusal.
+            if "isError': True" in result and "timed out" in result and attempt == 0:
+                logger.warning("a project write timed out; trying once more")
+                continue
+            break
+
         if "isError': True" in result:
             logger.error("clickhouse refused a project insert: %s", result[:300])
             raise HTTPException(

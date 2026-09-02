@@ -423,81 +423,6 @@ export default function TryYourClips() {
         </section>
       ) : null}
 
-      {conditions.some(Boolean) ? (
-        <section className="panel">
-          <h2>
-            What the light says
-            <Info>
-              Read from the frames alone, before any file was opened and without
-              a position or a clock. The sun is far enough away that its shadows
-              run parallel and each object casts one; a lamp is a point in the
-              room, so its shadows spread out from beneath things. That
-              distinction, and not the walls, decides whether the sun can be
-              used as a clock: a beam through a window obeys the same arithmetic
-              as a beach.
-            </Info>
-          </h2>
-          <div className="light-row">
-            {conditions.map((light, index) =>
-              light ? (
-                <div className="light-card" key={index}>
-                  <b>Take {index + 1}</b>
-                  <span className={light.sun_is_usable ? "lit-sun" : "lit-lamp"}>
-                    {light.regime.replace(/_/g, " ")}
-                  </span>
-                  <em>
-                    looks like {light.time_of_day.replace(/_/g, " ")}, shadows{" "}
-                    {light.shadows_are}
-                    {light.lamps_visibly_on === true ? ", lamps on" : ""}
-                    {light.opening_is_bright === true ? ", a bright opening" : ""}
-                  </em>
-                </div>
-              ) : null,
-            )}
-          </div>
-        </section>
-      ) : null}
-
-      {project ? (
-        <section className="panel">
-          <h2>Your project</h2>
-          <p className="hint" style={{ marginBottom: 12 }}>
-            Written into the same tables the demo scene lives in, under its own
-            production, so nothing of yours mixes with anything of ours.
-          </p>
-          <dl className="facts">
-            <div className="fact">
-              <dt>Production</dt>
-              <dd>{project.production_id}</dd>
-            </div>
-            <div className="fact">
-              <dt>Cut version</dt>
-              <dd>{project.edit_version}</dd>
-            </div>
-            <div className="fact">
-              <dt>Frames kept</dt>
-              <dd>{project.frames_stored ? "yes, for 24 hours" : "no"}</dd>
-            </div>
-            <div className="fact">
-              <dt>Sun checks</dt>
-              <dd>
-                {project.position_known
-                  ? "ran, a position was given"
-                  : "did not run, no position was given"}
-              </dd>
-            </div>
-            <div className="fact">
-              <dt>Clock checks</dt>
-              <dd>
-                {project.times_known
-                  ? "ran, the files carried times"
-                  : "did not run, no times were given"}
-              </dd>
-            </div>
-          </dl>
-        </section>
-      ) : null}
-
       {findings.length > 0 ? (
         <section className="panel">
           <h2>
@@ -574,6 +499,66 @@ export default function TryYourClips() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {project || conditions.some(Boolean) ? (
+        <section className="panel">
+          <h2>
+            What this run had to work with
+            <Info>
+              The light is read from the frames alone, before any file is
+              opened. The sun is far enough away that its shadows run parallel
+              and each object casts one; a lamp is a point in the room, so its
+              shadows spread out from beneath things. That distinction decides
+              whether the sun can be used as a clock, and the walls never do: a
+              beam through a window obeys the same arithmetic as a beach.
+            </Info>
+          </h2>
+
+          {conditions.some(Boolean) ? (
+            <ul className="run-lights">
+              {conditions.map((light, index) =>
+                light ? (
+                  <li key={index}>
+                    <b>Take {index + 1}</b>
+                    <span className={light.sun_is_usable ? "lit-sun" : "lit-lamp"}>
+                      {light.regime.replace(/_/g, " ")}
+                    </span>
+                    <em>
+                      looks like {light.time_of_day.replace(/_/g, " ")}, shadows{" "}
+                      {light.shadows_are}
+                      {light.lamps_visibly_on === true ? ", lamps on" : ""}
+                      {light.opening_is_bright === true ? ", a bright opening" : ""}
+                    </em>
+                  </li>
+                ) : null,
+              )}
+            </ul>
+          ) : null}
+
+          {project ? (
+            <>
+              <p className="run-ran">
+                {project.position_known
+                  ? "The sun was computed for the whole window."
+                  : "No position was given, so the sun was never consulted."}{" "}
+                {project.times_known
+                  ? "The files carried their own capture times."
+                  : "No capture times were given, so the clock was never consulted."}{" "}
+                {project.frames_stored
+                  ? "Two frames per take are kept for 24 hours so the agent could look at them."
+                  : "No frames were kept, so nothing could be looked at."}
+              </p>
+              <p className="run-ids">
+                {project.production_id} · {project.edit_version}
+                <span>
+                  Written into the same tables the demo scene lives in, under its
+                  own production, so nothing of yours mixes with anything of ours.
+                </span>
+              </p>
+            </>
+          ) : null}
+        </section>
       ) : null}
 
       {events.length > 0 && !stage ? (

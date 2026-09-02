@@ -384,6 +384,52 @@ carry colour temperature, footprints and waterline instead. The cross-take drift
 finding needs no vision at all - capture time joined to computed physics is
 enough.
 
+### Bringing your own footage
+
+The demo scene is synthetic so that there can be an answer key. To show the
+method works on footage nobody here has seen, `/try` takes the two shots either
+side of a cut and asks whether the sun agrees they belong together. The first
+clip is the shot being cut away from, so its **last** frame is what counts; the
+second is the shot being cut to, so its **first** frame is. Those are the two
+moments an audience reads as continuous.
+
+Neither video is uploaded. The browser parses the MP4 boxes itself for
+`creation_time` and the `©xyz` location atom, decodes the file, and sends two
+JPEG frames. A hundred megabyte clip is not a hundred megabyte upload, and the
+honest answer to "where does my footage go" is nowhere.
+
+Three things were learned by pointing this at real frames rather than reasoning
+about it, and all three changed the code:
+
+**One reading of a frame is not a measurement.** Asked five times about a single
+unchanged frame, the model answered between 1.2 and 2.6 for the same shadow. On
+a pair sitting near the tolerance that spread flipped the verdict three times
+out of five: the same two files, the same timestamps, a different answer. Frames
+are now read three times and the median is kept, which makes repeated runs on
+the same evidence agree. That is the least a tool can offer before it tells
+somebody their timestamps are wrong.
+
+**A comparison that cannot fail is not a pass.** Shadow length is the cotangent
+of solar elevation, so it is nearly flat at midday and steepens sharply towards
+the horizon. The same seven-second cut is a searching test in the last hour of
+light and almost no test at noon: a timestamp there would have to be **102
+minutes** wrong before the shadows could show it, against **10 minutes** near
+dusk. So every verdict now carries its own reach, and a cut where nothing could
+have failed is reported as inconclusive rather than clean.
+
+**Read the ratio, not the length.** The vision pass compresses long shadows
+badly: a true 4.85 comes back near 1.45, a true 2.12 near 1.30. Judged alone
+both are hopeless. Judged against each other much of the error divides out,
+which is the same argument the rest of the system rests on. It is not free -
+the compression flattens real differences too, so this errs towards missing an
+error rather than inventing one, which is the right direction for a tool an
+editor is meant to trust.
+
+Measured on the demo frames, three runs each: an honest seven-minute cut comes
+back consistent every time (agreement 0.94 to 1.41 against a tolerance of 1.67),
+and the take with the seventy-minute slate error comes back suspect every time
+(2.06 to 2.75). The gap between them is the working margin.
+
 **On model choice.** Everything runs on `gemini-3.7-flash`, measured against
 `gemini-2.5-flash` rather than assumed better. On the same five frames with a
 known answer, shadow direction error fell from 36.6 degrees to 13.4, footprint

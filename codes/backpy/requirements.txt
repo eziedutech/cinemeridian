@@ -24,6 +24,10 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 sse-starlette>=2.1.0
 
+# FastAPI needs this to parse multipart forms, which is how extracted frames
+# arrive from the browser. Without it the upload endpoint fails at import.
+python-multipart>=0.0.9
+
 # mcp-clickhouse is NOT installed here. It runs as a stdio subprocess launched
 # by uv at runtime (see app/agent.py), which is what keeps the ClickHouse
 # access on the MCP path the track requires.

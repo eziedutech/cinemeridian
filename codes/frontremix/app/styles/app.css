@@ -808,6 +808,102 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   max-width: 74ch;
 }
 
+/* Try your own clip */
+
+/* The two shots either side of a cut, side by side because that is how the
+   question is posed: A on the left is what the audience is leaving, B on the
+   right is what it lands on. Below a laptop width they stack, and the source
+   order keeps A above B, which is still the reading order of a cut. */
+.clip-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.clip-pair > * { min-width: 0; }
+
+@media (max-width: 980px) {
+  .clip-pair { grid-template-columns: 1fr; }
+}
+
+.clip-pair figure { margin: 0; }
+
+.clip-pair img {
+  width: 100%;
+  display: block;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: #000;
+}
+
+.clip-pair figcaption { margin-top: 9px; font-size: 12.5px; color: var(--ink-dim); }
+.clip-pair figcaption b { color: var(--sand); margin-right: 7px; }
+.clip-pair figcaption span {
+  display: block;
+  color: var(--ink-faint);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.drop {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 20px 22px;
+  margin-top: 4px;
+  border: 1px dashed var(--line);
+  border-radius: var(--r);
+  background: var(--raised);
+}
+
+.known {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  gap: 16px 26px;
+  margin-bottom: 22px;
+}
+
+.known-item dt { font-size: 11.5px; color: var(--ink-faint); margin-bottom: 3px; }
+.known-item dd { margin: 0; font-size: 14px; }
+.known-yes { color: var(--ink); }
+.known-no { color: var(--ink-faint); font-style: italic; }
+
+.form-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.form-row .field { flex-direction: column; align-items: flex-start; gap: 5px; }
+.form-row .field input { min-width: 190px; }
+
+/* The answer, stated once and plainly. Colour carries the verdict, so there is
+   only ever one of these that is not grey. */
+.verdict {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 18px 20px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--raised);
+}
+
+.verdict b { display: block; font-size: 15.5px; margin-bottom: 6px; }
+.verdict p { margin: 0; font-size: 13.5px; color: var(--ink-dim); line-height: 1.65; max-width: 76ch; }
+.verdict svg { flex: 0 0 auto; margin-top: 2px; }
+
+.verdict-good { border-color: var(--sand); }
+.verdict-good svg, .verdict-good b { color: var(--sand); }
+.verdict-alarm { border-color: var(--alarm); }
+.verdict-alarm b { color: var(--alarm); }
+
 /* Odds and ends */
 
 .empty {

@@ -13,12 +13,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import statistics
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -363,6 +365,338 @@ async def takes(scene_id: str = "sc14", edit_version: str = "v14") -> dict[str, 
         "frames_per_take": FRAMES_PER_TAKE,
         "bucket": get_settings().gcs_asset_bucket,
         "result": result,
+    }
+
+
+#: A frame arrives already scaled to 1280 on its longest edge, so anything much
+#: past this is not a frame from our extractor.
+MAX_FRAME_BYTES = 4 * 1024 * 1024
+MAX_FRAMES_PER_INSPECT = 8
+
+
+@app.post("/api/inspect")
+async def inspect(
+    head: UploadFile = File(...),
+    tail: UploadFile = File(...),
+    recorded_at: str = Form(...),
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    head_at_seconds: float = Form(0.0),
+    tail_at_seconds: float = Form(0.0),
+) -> dict[str, Any]:
+    """Read someone else's clip: measure the shadows, recover what the file lacks.
+
+    Two frames come in, the clip's first moment and its last, already extracted
+    in the browser - the video itself never leaves the machine it was chosen on.
+
+    What comes back is the part a camera report cannot fill in. The file knows
+    when it was recorded and a phone usually knows where it stood, but nothing
+    anywhere records which way the camera was pointing, because that is a
+    compass bearing somebody would have had to measure on set. The sun supplies
+    it: a shadow falls opposite the sun, so with time and place known the
+    bearing in frame leaves the camera's heading as the only unknown.
+
+    The same arithmetic checks the timestamp. Shadow length is the cotangent of
+    solar elevation, so the time on the file predicts a length; a frame that
+    disagrees by more than the vision pass's own error is more likely to have a
+    wrong timestamp than wrong physics.
+    """
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        raise HTTPException(status_code=400, detail="latitude or longitude out of range")
+
+    when = _parse_moment(recorded_at, "clip")
+    settings = get_settings()
+    results = []
+
+    for role, upload, offset in (
+        ("head", head, head_at_seconds),
+        ("tail", tail, tail_at_seconds),
+    ):
+        payload = await _read_frame(upload, role)
+        observations = await _observe(payload, role, settings)
+
+        # The timestamp on the file marks the clip's start, so the tail frame
+        # is that many seconds later. Over a short clip the sun barely moves,
+        # but using the same instant for both would be quietly wrong, and this
+        # is the one function whose whole job is not being quietly wrong.
+        moment = when + timedelta(seconds=offset)
+        inferred = _infer(observations, moment, latitude, longitude)
+
+        results.append(
+            {
+                "role": role,
+                "at_seconds": round(offset, 2),
+                "moment": moment.strftime("%Y-%m-%d %H:%M:%S"),
+                "observations": observations,
+                "inferred": _inferred_payload(inferred),
+            }
+        )
+
+    return {
+        "recorded_at": when.strftime("%Y-%m-%d %H:%M:%S"),
+        "latitude": latitude,
+        "longitude": longitude,
+        "model": settings.model,
+        "frames": results,
+    }
+
+
+@app.post("/api/compare")
+async def compare(
+    outgoing: UploadFile = File(...),
+    incoming: UploadFile = File(...),
+    outgoing_recorded_at: str = Form(...),
+    incoming_recorded_at: str = Form(...),
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    outgoing_at_seconds: float = Form(0.0),
+    incoming_at_seconds: float = Form(0.0),
+) -> dict[str, Any]:
+    """Two clips, cut together. Does the sun agree they are one moment?
+
+    This is the single-clip inspection turned into the question an editor
+    actually has. `outgoing` is the last frame of the shot being cut away
+    from, `incoming` the first frame of the shot being cut to. On screen those
+    two frames are adjacent and an audience reads them as continuous, so the
+    light in them has to be continuous too.
+
+    Both clips are assumed to be the same place, which is what a cut inside a
+    scene means. Their times come from their own files, so a wrong timestamp on
+    either one is exactly the thing this is able to notice.
+
+    Everything expensive here is done on two JPEGs. The videos stay on the
+    machine they were chosen on; the browser decodes them and sends two frames.
+    """
+    from app.tools.prescribe import compare_cut
+
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        raise HTTPException(status_code=400, detail="latitude or longitude out of range")
+
+    settings = get_settings()
+    sides = []
+
+    for role, upload, stamp, offset in (
+        ("outgoing", outgoing, outgoing_recorded_at, outgoing_at_seconds),
+        ("incoming", incoming, incoming_recorded_at, incoming_at_seconds),
+    ):
+        when = _parse_moment(stamp, role) + timedelta(seconds=offset)
+        payload = await _read_frame(upload, role)
+        observations = await _observe(payload, role, settings)
+        sides.append((role, when, observations, _infer(observations, when, latitude, longitude)))
+
+    (_, out_when, out_obs, out_inf), (_, in_when, in_obs, in_inf) = sides
+    verdict = compare_cut(
+        outgoing=out_inf,
+        incoming=in_inf,
+        outgoing_at_utc=out_when,
+        incoming_at_utc=in_when,
+        latitude=latitude,
+        longitude=longitude,
+    )
+
+    return {
+        "latitude": latitude,
+        "longitude": longitude,
+        "model": settings.model,
+        "verdict": {
+            "verdict": verdict.verdict,
+            "headline": verdict.headline,
+            "detail": verdict.detail,
+            "minutes_apart": verdict.minutes_apart,
+            "sun_elevation_change_deg": verdict.sun_elevation_change_deg,
+            "sun_azimuth_change_deg": verdict.sun_azimuth_change_deg,
+            "expected_length_ratio": verdict.expected_length_ratio,
+            "observed_length_ratio": verdict.observed_length_ratio,
+            "ratio_agreement": verdict.ratio_agreement,
+            "camera_heading_change_deg": verdict.camera_heading_change_deg,
+            "detectable_from_minutes": verdict.detectable_from_minutes,
+        },
+        "frames": [
+            {
+                "role": role,
+                "moment": when.strftime("%Y-%m-%d %H:%M:%S"),
+                "observations": observations,
+                "inferred": _inferred_payload(inferred),
+            }
+            for role, when, observations, inferred in sides
+        ],
+    }
+
+
+def _parse_moment(stamp: str, role: str) -> datetime:
+    """Read an ISO timestamp, defaulting a missing zone to UTC."""
+    try:
+        when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(
+            status_code=400, detail=f"unreadable {role} timestamp: {stamp!r}"
+        ) from None
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+
+
+async def _read_frame(upload: UploadFile, role: str) -> bytes:
+    payload = await upload.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail=f"{role} frame is empty")
+    if len(payload) > MAX_FRAME_BYTES:
+        raise HTTPException(status_code=413, detail=f"{role} frame is too large")
+    return payload
+
+
+#: How many times each frame is read before its measurements are believed.
+#:
+#: One reading is not enough, and that is measured rather than assumed. Asked
+#: five times about one unchanged frame, the model answered between 1.2 and 2.6
+#: for the same shadow, and on a pair sitting near the verdict's tolerance that
+#: spread flipped the answer three times out of five. The median of three is
+#: stable across repeats on the same evidence, which is the least a person can
+#: ask of a tool that is telling them their timestamps are wrong.
+#:
+#: The three reads go out together, so this costs latency once rather than
+#: three times.
+READS_PER_FRAME = 3
+
+#: How long to wait before the last attempt, when every read of a frame failed
+#: at once. Long enough for a per-minute limit to breathe.
+RETRY_PAUSE_S = 20.0
+
+
+async def _observe(payload: bytes, role: str, settings: Any) -> list[dict[str, Any]]:
+    """Measure one frame several times and keep the middle answer.
+
+    A vision call can also fail for reasons that have nothing to do with the
+    clip somebody just handed us. Those must not reach the browser as a bare
+    500, which would tell a person their footage was rejected when it was not.
+    """
+    from app.tools.vision import observe_frame
+
+    async def read_once() -> list[dict[str, Any]]:
+        return await asyncio.to_thread(
+            observe_frame, payload, mime_type="image/jpeg", settings=settings
+        )
+
+    # Sent together and allowed to fail apart. Three calls at once is enough to
+    # earn a rate limit on a small quota, and losing the whole frame because
+    # one of three came back 429 would be throwing away two good measurements.
+    # Two readings are still better than one; one is still better than none.
+    attempts = await asyncio.gather(
+        *(read_once() for _ in range(READS_PER_FRAME)), return_exceptions=True
+    )
+    readings = [r for r in attempts if not isinstance(r, BaseException)]
+    failures = [r for r in attempts if isinstance(r, BaseException)]
+
+    if failures and not readings:
+        # Everything failed, which usually means a rate limit rather than a bad
+        # frame. One more try, alone and after a pause, before giving up.
+        await asyncio.sleep(RETRY_PAUSE_S)
+        try:
+            readings = [await read_once()]
+        except Exception as error:  # noqa: BLE001 - surfaced verbatim below
+            logger.exception("vision failed on the %s frame", role)
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    f"Could not read the {role} frame: the vision service returned "
+                    f"an error. This is on our side, not your clip. ({error})"
+                ),
+            ) from error
+    elif failures:
+        logger.warning(
+            "%s of %s reads failed on the %s frame; using the %s that came back",
+            len(failures),
+            READS_PER_FRAME,
+            role,
+            len(readings),
+        )
+
+    return _median_of(readings)
+
+
+def _median_of(readings: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """Collapse repeated readings of one frame into one set of measurements.
+
+    Keyed on entity and attribute, because that pair is what the rest of the
+    system addresses a measurement by. A row that only some of the readings
+    produced is kept, on the medians of whatever did produce it: the model
+    noticing a shadow twice out of three times is still the model noticing a
+    shadow, and dropping it would trade a noisy measurement for none at all.
+    """
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    order: list[tuple[str, str]] = []
+
+    for reading in readings:
+        for row in reading:
+            key = (row.get("entity"), row.get("attribute"))
+            if key not in grouped:
+                grouped[key] = []
+                order.append(key)
+            grouped[key].append(row)
+
+    merged: list[dict[str, Any]] = []
+    for key in order:
+        rows = grouped[key]
+        # The row nearest the middle carries the text fields, so free-form
+        # values stay a thing the model actually said rather than a blend.
+        middle = dict(_representative(rows))
+        for field in ("numeric_value", "confidence", "frame_coverage_pct"):
+            values = [
+                row[field]
+                for row in rows
+                if isinstance(row.get(field), (int, float))
+            ]
+            if values:
+                middle[field] = round(statistics.median(values), 4)
+        middle["reads"] = len(rows)
+        merged.append(middle)
+
+    return merged
+
+
+def _representative(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """The reading closest to the median of the numbers, or just the first."""
+    values = [
+        (row["numeric_value"], row)
+        for row in rows
+        if isinstance(row.get("numeric_value"), (int, float))
+    ]
+    if not values:
+        return rows[0]
+    target = statistics.median(value for value, _ in values)
+    return min(values, key=lambda pair: abs(pair[0] - target))[1]
+
+
+def _infer(
+    observations: list[dict[str, Any]], when: datetime, latitude: float, longitude: float
+) -> Any:
+    from app.tools.prescribe import infer_capture
+
+    measured = {(o["entity"], o["attribute"]): o for o in observations}
+
+    def numeric(entity: str, attribute: str) -> float | None:
+        row = measured.get((entity, attribute))
+        value = row.get("numeric_value") if row else None
+        return float(value) if isinstance(value, (int, float)) else None
+
+    return infer_capture(
+        captured_at_utc=when,
+        latitude=latitude,
+        longitude=longitude,
+        observed_shadow_direction_deg=numeric("primary_shadow", "direction_deg"),
+        observed_shadow_length_ratio=numeric("primary_shadow", "length_ratio"),
+    )
+
+
+def _inferred_payload(inferred: Any) -> dict[str, Any]:
+    return {
+        "camera_heading_deg": inferred.camera_heading_deg,
+        "heading_uncertainty_deg": inferred.heading_uncertainty_deg,
+        "sun_azimuth_deg": inferred.sun_azimuth_deg,
+        "sun_elevation_deg": inferred.sun_elevation_deg,
+        "expected_shadow_length_ratio": inferred.expected_shadow_length_ratio,
+        "observed_shadow_length_ratio": inferred.observed_shadow_length_ratio,
+        "length_agreement": inferred.length_agreement,
+        "timestamp_trustworthy": inferred.timestamp_trustworthy,
+        "note": inferred.note,
     }
 
 

@@ -159,14 +159,15 @@ export default function Console() {
           </select>
         </label>
 
-        <button
-          type="button"
-          className="ghost"
-          disabled
-          title="Upload your own footage and analyse it. Not built yet."
-        >
-          New project
-        </button>
+        <a href="/try">
+          <button
+            type="button"
+            className="ghost"
+            title="Point the tool at a clip of your own. It is decoded in your browser and never uploaded."
+          >
+            Try your own clip
+          </button>
+        </a>
 
         <label className="field">
           <span>Cut</span>

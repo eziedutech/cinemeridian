@@ -233,3 +233,349 @@ class TestSeries:
         assert rows[0]["ts"].tzinfo is None      # ClickHouse DateTime is naive
         assert rows[0]["production_id"] == "prod_tideline"
         assert isinstance(rows[0]["is_civil_daylight"], int)
+
+
+class TestCaptureInference:
+    """Recovering a camera heading from the shadow it casts.
+
+    These are round trips against known answers: take a heading, compute the
+    shadow it would produce, hand only the shadow back, and see whether the
+    heading comes out again. If the arithmetic is wrong in one direction it is
+    wrong in the other, so the test asserts against headings chosen here rather
+    than against anything the code produced.
+    """
+
+    def _direction_for(self, heading: float, when: datetime) -> tuple[float, float]:
+        sun = eph.solar_position(DEMO_LAT, DEMO_LON, when)
+        return eph.shadow_direction_deg(sun.azimuth_deg, heading), sun.shadow_len_ratio
+
+    def test_recovers_a_known_camera_heading(self):
+        from app.tools.prescribe import infer_capture
+
+        when = datetime(2026, 12, 4, 22, 30, tzinfo=UTC)  # 16:30 local, long shadow
+        for heading in (0.0, 90.0, 195.0, 270.0, 348.0):
+            direction, ratio = self._direction_for(heading, when)
+            result = infer_capture(
+                captured_at_utc=when,
+                latitude=DEMO_LAT,
+                longitude=DEMO_LON,
+                observed_shadow_direction_deg=direction,
+                observed_shadow_length_ratio=ratio,
+            )
+            assert result.camera_heading_deg == pytest.approx(heading, abs=0.5)
+
+    def test_declines_a_heading_when_the_shadow_is_a_stub(self):
+        """A short shadow has no usable bearing, and saying so beats guessing."""
+        from app.tools.prescribe import infer_capture
+
+        when = datetime(2026, 12, 4, 19, 0, tzinfo=UTC)  # 13:00 local, sun high
+        direction, ratio = self._direction_for(270.0, when)
+        assert ratio < 1.5
+        result = infer_capture(
+            captured_at_utc=when,
+            latitude=DEMO_LAT,
+            longitude=DEMO_LON,
+            observed_shadow_direction_deg=direction,
+            observed_shadow_length_ratio=ratio,
+        )
+        assert result.camera_heading_deg is None
+        assert "too short" in result.note
+
+    def test_a_correct_timestamp_is_trusted(self):
+        from app.tools.prescribe import infer_capture
+
+        when = datetime(2026, 12, 4, 22, 30, tzinfo=UTC)
+        _, ratio = self._direction_for(270.0, when)
+        result = infer_capture(
+            captured_at_utc=when,
+            latitude=DEMO_LAT,
+            longitude=DEMO_LON,
+            observed_shadow_direction_deg=None,
+            observed_shadow_length_ratio=ratio,
+        )
+        assert result.timestamp_trustworthy is True
+
+    def test_a_wrong_timestamp_is_caught(self):
+        """The planted slate error, run through the inference instead.
+
+        The file says 15:19 local; the frame was shot at 16:29. The shadow at
+        the real time is more than twice what the stated time predicts, which
+        is far outside what the vision pass's own error could explain.
+        """
+        from app.tools.prescribe import infer_capture
+
+        real = datetime(2026, 12, 14, 22, 29, tzinfo=UTC)
+        claimed = datetime(2026, 12, 14, 21, 19, tzinfo=UTC)
+        _, real_ratio = self._direction_for(95.0, real)
+
+        result = infer_capture(
+            captured_at_utc=claimed,
+            latitude=DEMO_LAT,
+            longitude=DEMO_LON,
+            observed_shadow_direction_deg=None,
+            observed_shadow_length_ratio=real_ratio,
+        )
+        assert result.timestamp_trustworthy is False
+        assert result.length_agreement > 2.0
+        assert "timestamp" in result.note
+
+    def test_says_so_when_the_sun_is_down(self):
+        from app.tools.prescribe import infer_capture
+
+        result = infer_capture(
+            captured_at_utc=datetime(2026, 12, 4, 6, 0, tzinfo=UTC),  # midnight local
+            latitude=DEMO_LAT,
+            longitude=DEMO_LON,
+            observed_shadow_direction_deg=120.0,
+            observed_shadow_length_ratio=3.0,
+        )
+        assert result.sun_elevation_deg < 0
+        assert "below the horizon" in result.note
+
+
+class TestCutComparison:
+    """Two clips, cut together. Does the sun agree they are one moment?
+
+    Every case here is built the same way: pick real times and a real place,
+    let the ephemeris say what the shadows must be, feed those back in as if a
+    camera had recorded them, and check the verdict. Where a case is meant to
+    fail, the failure is introduced by lying about *when*, not by inventing an
+    impossible shadow, because a wrong time is the mistake an edit actually
+    makes.
+    """
+
+    LAT = 8.75
+    LON = -83.5
+
+    def capture(self, moment, *, measured_ratio=None, bias=1.0, heading=90.0):
+        """An InferredCapture as the pipeline would build one for `moment`.
+
+        `bias` stands in for the vision pass reading shadows short: it scales
+        the measurement the way the model does in practice, so a test can show
+        the bias dividing out of a comparison even while it wrecks an absolute
+        reading.
+        """
+        from app.tools.prescribe import infer_capture
+
+        sun = eph.solar_position(self.LAT, self.LON, moment)
+        true_ratio = sun.shadow_len_ratio
+        if measured_ratio is not None:
+            observed = measured_ratio
+        else:
+            observed = None if true_ratio is None else true_ratio * bias
+
+        direction = None
+        if observed:
+            direction = (sun.azimuth_deg + 180.0 - heading) % 360.0
+
+        return infer_capture(
+            captured_at_utc=moment,
+            latitude=self.LAT,
+            longitude=self.LON,
+            observed_shadow_direction_deg=direction,
+            observed_shadow_length_ratio=observed,
+        )
+
+    def test_honest_cut_passes(self):
+        """Two shots filmed four minutes apart, labelled four minutes apart."""
+        from app.tools.prescribe import compare_cut
+
+        a = datetime(2026, 12, 14, 19, 0, tzinfo=timezone.utc)
+        b = a + timedelta(minutes=4)
+        result = compare_cut(
+            outgoing=self.capture(a),
+            incoming=self.capture(b),
+            outgoing_at_utc=a,
+            incoming_at_utc=b,
+            latitude=self.LAT,
+            longitude=self.LON,
+        )
+        assert result.verdict == "matched"
+        assert result.ratio_agreement == pytest.approx(1.0, abs=0.02)
+
+    def test_vision_bias_does_not_break_an_honest_cut(self):
+        """The model reads both shadows forty percent short. It still passes.
+
+        This is the whole argument for comparing rather than measuring. Either
+        frame judged alone looks badly wrong; judged against each other they
+        are exactly right, because the same error is in both.
+        """
+        from app.tools.prescribe import compare_cut
+
+        a = datetime(2026, 12, 14, 19, 0, tzinfo=timezone.utc)
+        b = a + timedelta(minutes=6)
+        result = compare_cut(
+            outgoing=self.capture(a, bias=0.6),
+            incoming=self.capture(b, bias=0.6),
+            outgoing_at_utc=a,
+            incoming_at_utc=b,
+            latitude=self.LAT,
+            longitude=self.LON,
+        )
+        assert result.verdict == "matched"
+        assert result.ratio_agreement == pytest.approx(1.0, abs=0.02)
+
+    def test_shots_filmed_hours_apart_are_caught(self):
+        """The cut claims four minutes. The light is three hours of afternoon.
+
+        The incoming frame really was shot at 22:00 and carries 22:00's long
+        shadow, but the edit presents it as following 19:04. The comparison is
+        against what 19:04 requires, and it does not fit.
+        """
+        from app.tools.prescribe import compare_cut
+
+        a = datetime(2026, 12, 14, 19, 0, tzinfo=timezone.utc)
+        claimed_b = a + timedelta(minutes=4)
+        actually_shot = datetime(2026, 12, 14, 22, 0, tzinfo=timezone.utc)
+
+        long_shadow = eph.solar_position(self.LAT, self.LON, actually_shot).shadow_len_ratio
+
+        result = compare_cut(
+            outgoing=self.capture(a),
+            incoming=self.capture(claimed_b, measured_ratio=long_shadow),
+            outgoing_at_utc=a,
+            incoming_at_utc=claimed_b,
+            latitude=self.LAT,
+            longitude=self.LON,
+        )
+        assert result.verdict == "suspect"
+        assert result.observed_length_ratio > result.expected_length_ratio
+        assert "not filmed when the files say" in result.detail
+
+    def test_no_measurable_shadow_is_not_a_finding(self):
+        """Silence from the vision pass must not read as a pass or a failure."""
+        from app.tools.prescribe import compare_cut
+
+        a = datetime(2026, 12, 14, 19, 0, tzinfo=timezone.utc)
+        b = a + timedelta(minutes=4)
+        result = compare_cut(
+            outgoing=self.capture(a),
+            incoming=self.capture(b, measured_ratio=0.0),
+            outgoing_at_utc=a,
+            incoming_at_utc=b,
+            latitude=self.LAT,
+            longitude=self.LON,
+        )
+        assert result.verdict == "unmeasurable"
+        assert "incoming frame" in result.headline
+        assert result.ratio_agreement is None
+
+    def test_night_is_declined_rather_than_guessed(self):
+        from app.tools.prescribe import compare_cut
+
+        a = datetime(2026, 12, 15, 6, 0, tzinfo=timezone.utc)
+        b = a + timedelta(minutes=3)
+        result = compare_cut(
+            outgoing=self.capture(a),
+            incoming=self.capture(b),
+            outgoing_at_utc=a,
+            incoming_at_utc=b,
+            latitude=self.LAT,
+            longitude=self.LON,
+        )
+        assert result.verdict == "unmeasurable"
+        assert "sun is down" in result.headline
+
+    def test_camera_move_is_reported_not_condemned(self):
+        """A forty degree pan between shots is staging, not a continuity error.
+
+        Late afternoon deliberately: a heading is only offered when the shadow
+        is long enough to have a bearing worth reading, and at midday it is
+        not. The refusal is the point of that rule, so this test works with it
+        rather than around it.
+        """
+        from app.tools.prescribe import compare_cut
+
+        a = datetime(2026, 12, 14, 21, 30, tzinfo=timezone.utc)
+        b = a + timedelta(minutes=4)
+        result = compare_cut(
+            outgoing=self.capture(a, heading=90.0),
+            incoming=self.capture(b, heading=130.0),
+            outgoing_at_utc=a,
+            incoming_at_utc=b,
+            latitude=self.LAT,
+            longitude=self.LON,
+        )
+        assert result.verdict == "matched"
+        assert result.camera_heading_change_deg == pytest.approx(40.0, abs=1.0)
+
+
+class TestDetectionFloor:
+    """How wrong a timestamp has to be before the shadows could show it.
+
+    Shadow length is the cotangent of solar elevation, so it is nearly flat
+    through the middle of the day and steepens sharply towards the horizon.
+    The practical consequence is that the same cut is a searching test in the
+    last hour of light and almost no test at noon, and a verdict that does not
+    say which one it just made is offering an assurance it never earned.
+    """
+
+    LAT = 8.75
+    LON = -83.5
+
+    def floor(self, hour: int, minute: int = 0, gap_minutes: int = 7):
+        from app.tools.prescribe import detection_floor_minutes
+
+        start = datetime(2026, 12, 3, hour, minute, tzinfo=timezone.utc)
+        return detection_floor_minutes(
+            outgoing_at_utc=start,
+            incoming_at_utc=start + timedelta(minutes=gap_minutes),
+            latitude=self.LAT,
+            longitude=self.LON,
+        )
+
+    def test_late_light_sees_far_more_than_midday(self):
+        near_dusk = self.floor(22, 40)
+        midday = self.floor(18, 0)
+        assert near_dusk is not None and midday is not None
+        assert near_dusk < midday / 4
+
+    def test_a_pass_says_how_far_it_could_see(self):
+        """A verdict of matched must name its own reach, or it overclaims."""
+        from app.tools.prescribe import compare_cut, infer_capture
+
+        start = datetime(2026, 12, 3, 22, 40, tzinfo=timezone.utc)
+        later = start + timedelta(minutes=7)
+
+        def capture(moment):
+            sun = eph.solar_position(self.LAT, self.LON, moment)
+            return infer_capture(
+                captured_at_utc=moment,
+                latitude=self.LAT,
+                longitude=self.LON,
+                observed_shadow_direction_deg=None,
+                observed_shadow_length_ratio=sun.shadow_len_ratio,
+            )
+
+        result = compare_cut(
+            outgoing=capture(start),
+            incoming=capture(later),
+            outgoing_at_utc=start,
+            incoming_at_utc=later,
+            latitude=self.LAT,
+            longitude=self.LON,
+        )
+        assert result.verdict == "matched"
+        assert result.detectable_from_minutes is not None
+        assert f"{result.detectable_from_minutes:.0f} minutes" in result.detail
+
+    def test_the_planted_slate_error_sits_above_its_own_floor(self):
+        """The 63 minute error this project plants is one the test can see.
+
+        Worth pinning down, because it is the difference between catching that
+        error and merely happening to catch it. If a change to the tolerance
+        band ever pushes the floor above 63 minutes, the demo would still pass
+        while the check quietly stopped working.
+        """
+        from app.tools.prescribe import detection_floor_minutes
+
+        outgoing = datetime(2026, 12, 14, 22, 22, 10, tzinfo=timezone.utc)
+        incoming = datetime(2026, 12, 14, 21, 19, 10, tzinfo=timezone.utc)
+        floor = detection_floor_minutes(
+            outgoing_at_utc=outgoing,
+            incoming_at_utc=incoming,
+            latitude=self.LAT,
+            longitude=self.LON,
+        )
+        assert floor is not None
+        assert floor < 63

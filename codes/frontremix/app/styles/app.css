@@ -962,6 +962,137 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 .verdict-alarm { border-color: var(--alarm); }
 .verdict-alarm b { color: var(--alarm); }
 
+/* The answer, given the weight the reader's question has */
+
+.verdict-panel {
+  border-color: color-mix(in srgb, var(--sand) 45%, transparent);
+}
+
+.verdict-panel .report { font-size: 16px; line-height: 1.7; color: var(--ink); }
+.verdict-panel .report p { margin-bottom: 10px; }
+.verdict-panel > button { margin-top: 18px; }
+
+/* The two frames a cut joins, with what changed drawn on them */
+
+.cut-heads,
+.cut-frames {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.cut-heads { margin-bottom: 8px; }
+.cut-heads span { font-size: 13px; color: var(--ink); }
+.cut-heads em {
+  display: block;
+  font-style: normal;
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin-top: 2px;
+}
+
+.cut-frame {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+}
+
+.cut-frame img { width: 100%; display: block; }
+
+/* The same grid the model was shown, so a named cell can be found by eye.
+   Faint on purpose: it is a reference, not the subject. */
+.cut-rule { position: absolute; background: rgba(255, 255, 255, 0.14); }
+.cut-rule.v { top: 0; bottom: 0; width: 1px; }
+.cut-rule.h { left: 0; right: 0; height: 1px; }
+
+.cut-box {
+  position: absolute;
+  border: 2px solid var(--alarm);
+  border-radius: 3px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.3);
+}
+
+.cut-box b {
+  position: absolute;
+  top: -9px;
+  left: -2px;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--alarm);
+  color: #12141a;
+}
+
+/* Two colours, two events: something that arrived and something that left. */
+.cut-box.appeared { border-color: var(--alarm); }
+.cut-box.appeared b { background: var(--alarm); }
+.cut-box.gone { border-color: var(--sea); }
+.cut-box.gone b { background: var(--sea); color: #0d1014; }
+
+.cut-legend { list-style: none; margin: 16px 0 0; padding: 0; }
+.cut-legend li {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13.5px;
+  color: var(--ink-dim);
+}
+.cut-legend li:last-child { border-bottom: 0; }
+.cut-legend li > span {
+  display: inline-block;
+  min-width: 34px;
+  margin-right: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: #12141a;
+}
+.cut-legend .appeared { background: var(--alarm); }
+.cut-legend .gone { background: var(--sea); }
+.cut-legend em { display: block; font-style: normal; color: var(--ink-faint); font-size: 12px; margin-top: 3px; }
+
+@media (max-width: 760px) {
+  .cut-heads, .cut-frames { grid-template-columns: 1fr; }
+}
+
+/* The full report, when somebody asks for it */
+
+.sheet-over {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: rgba(8, 10, 14, 0.8);
+  backdrop-filter: blur(3px);
+}
+
+.sheet {
+  width: min(860px, 100%);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.sheet-head h2 { margin: 0; }
+.sheet-body { padding: 20px 24px 26px; overflow-y: auto; }
+
 /* What the light said, one card per take */
 
 .light-row {

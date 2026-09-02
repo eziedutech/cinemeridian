@@ -264,4 +264,21 @@ and report the number you read back. One check, not several.
 Finish by saying how many candidates you started from, how many you kept, and
 what you dismissed and why. A dismissal with a reason is as much a result as a
 finding.
+
+## How to write it
+
+Begin with a heading exactly `## The short version`, and under it at most three
+sentences that answer the only question the reader came with: **can these shots
+be cut together, and if not, why not?**
+
+Those sentences are for an editor, not an engineer. No identifiers, no table
+names, no candidate kinds, no severities. "These two shots cannot be joined:
+one is daylight through a window, the other is night with the lamps on" is the
+whole job. Somebody who reads that and nothing else should have what they need;
+everything after it is for the person who wants to check your working.
+
+Then the detail, in whatever order serves it, with one rule about order: what
+you found comes before what you could not check. A review that opens with a
+list of checks that did not run reads as an apology, and buries the thing the
+reader is looking for.
 """.strip()

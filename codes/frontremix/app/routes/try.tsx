@@ -3,6 +3,11 @@ import { json, type LoaderFunctionArgs } from "@remix-run/node";
 import { Link, useLoaderData } from "@remix-run/react";
 
 import { AgentTimeline, type TimelineEvent } from "~/components/AgentTimeline";
+import {
+  CutComparison,
+  type Grid,
+  type GridDifference,
+} from "~/components/CutComparison";
 import { FilmRoll } from "~/components/FilmRoll";
 import { Info } from "~/components/Info";
 import { Report } from "~/components/Report";
@@ -40,6 +45,14 @@ type Project = {
 };
 
 type SceneChange = { from: number; to: number; note: string };
+
+/** One join, with what the grid said changed across it. */
+type Join = {
+  from: number;
+  to: number;
+  grid: Grid;
+  differences: GridDifference[];
+};
 
 /** What one frame said about its own light, before any file was consulted. */
 type Conditions = {
@@ -102,6 +115,8 @@ export default function TryYourClips() {
   const [sceneChanges, setSceneChanges] = useState<SceneChange[]>([]);
   const [report, setReport] = useState("");
   const [conditions, setConditions] = useState<Array<Conditions | null>>([]);
+  const [joins, setJoins] = useState<Join[]>([]);
+  const [reportOpen, setReportOpen] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
@@ -129,6 +144,7 @@ export default function TryYourClips() {
     setFindings([]);
     setSceneChanges([]);
     setConditions([]);
+    setJoins([]);
     setReport("");
 
     const startedAt = Date.now();
@@ -142,6 +158,7 @@ export default function TryYourClips() {
       const seen = await findSceneChanges(apiBase, ordered);
       setSceneChanges(seen.changes);
       setConditions(seen.conditions);
+      setJoins(seen.joins);
 
       setStage(`Reading ${ordered.length} clips and writing them into ClickHouse`);
       const created = await createProject(
@@ -502,10 +519,61 @@ export default function TryYourClips() {
       ) : null}
 
       {report ? (
-        <section className="panel">
-          <h2>What it concluded</h2>
-          <Report markdown={report} />
+        <section className="panel verdict-panel">
+          <h2>The answer</h2>
+          <Report markdown={shortVersion(report)} />
+          <button type="button" onClick={() => setReportOpen(true)}>
+            Show the full report
+          </button>
         </section>
+      ) : null}
+
+      {joins.map((join) => {
+        const from = ordered[join.from - 1]?.tailFrame?.dataUrl;
+        const to = ordered[join.to - 1]?.headFrame?.dataUrl;
+        if (!from || !to) return null;
+        return (
+          <section className="panel" key={`${join.from}-${join.to}`}>
+            <h2>
+              What changed across the cut
+              <Info>
+                Both frames were laid side by side under this same grid and read
+                together, so what you see marked is a comparison rather than two
+                descriptions subtracted from each other. Cells are named the way
+                the model named them.
+              </Info>
+            </h2>
+            <CutComparison
+              outgoing={from}
+              incoming={to}
+              grid={join.grid}
+              differences={join.differences}
+              fromTake={join.from}
+              toTake={join.to}
+            />
+          </section>
+        );
+      })}
+
+      {reportOpen ? (
+        <div
+          className="sheet-over"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setReportOpen(false)}
+        >
+          <div className="sheet" onClick={(event) => event.stopPropagation()}>
+            <div className="sheet-head">
+              <h2>The full report</h2>
+              <button type="button" className="ghost small" onClick={() => setReportOpen(false)}>
+                Close
+              </button>
+            </div>
+            <div className="sheet-body">
+              <Report markdown={report} />
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {events.length > 0 && !stage ? (
@@ -695,9 +763,14 @@ function TakeCard({
 async function findSceneChanges(
   base: string,
   takes: TakeState[],
-): Promise<{ changes: SceneChange[]; conditions: Array<Conditions | null> }> {
+): Promise<{
+  changes: SceneChange[];
+  conditions: Array<Conditions | null>;
+  joins: Join[];
+}> {
   const changes: SceneChange[] = [];
   const conditions: Array<Conditions | null> = takes.map(() => null);
+  const joins: Join[] = [];
 
   for (let index = 0; index + 1 < takes.length; index += 1) {
     const outgoing = takes[index].tailFrame;
@@ -720,8 +793,16 @@ async function findSceneChanges(
     const answer = (await response.json()) as {
       same_place: boolean;
       place_note: string;
+      grid?: Grid;
+      differences?: GridDifference[];
       conditions?: { outgoing: Conditions | null; incoming: Conditions | null };
     };
+    joins.push({
+      from: index + 1,
+      to: index + 2,
+      grid: answer.grid ?? DEFAULT_GRID,
+      differences: answer.differences ?? [],
+    });
     if (!answer.same_place) {
       changes.push({ from: index + 1, to: index + 2, note: answer.place_note });
     }
@@ -730,7 +811,7 @@ async function findSceneChanges(
     conditions[index] = conditions[index] ?? answer.conditions?.outgoing ?? null;
     conditions[index + 1] = answer.conditions?.incoming ?? null;
   }
-  return { changes, conditions };
+  return { changes, conditions, joins };
 }
 
 async function createProject(
@@ -995,4 +1076,26 @@ function ProcessSummary({
       ))}
     </dl>
   );
+}
+
+
+/**
+ * The three sentences the reader came for, and nothing else.
+ *
+ * The agent is asked to open with a section headed "The short version" saying
+ * in plain words whether these shots can be cut together. That is what belongs
+ * on the page; the rest is for whoever wants to check the working, and it goes
+ * behind a button. When the section is missing, the opening paragraphs stand in
+ * rather than nothing at all.
+ */
+function shortVersion(markdown: string): string {
+  const match = /##[ \t]*The short version[ \t]*\n([\s\S]*?)(?=\n#{1,3}[ \t]|$)/i.exec(
+    markdown,
+  );
+  if (match) return match[1].trim();
+
+  // No such section: the opening paragraphs are the next best thing, and are
+  // still a great deal closer to an answer than the whole report would be.
+  const body = markdown.replace(/^#.*$/m, "").trim();
+  return body.split(/\n\s*\n/).slice(0, 2).join("\n\n");
 }

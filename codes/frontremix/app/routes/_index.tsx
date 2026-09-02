@@ -3,6 +3,7 @@ import { json, type LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useRevalidator } from "@remix-run/react";
 
 import { AgentTimeline, type TimelineEvent } from "~/components/AgentTimeline";
+import { Info } from "~/components/Info";
 import { describeCall, describeOutcome } from "~/lib/narrate";
 import { EvidencePair } from "~/components/EvidencePair";
 import { Filmstrip } from "~/components/Filmstrip";
@@ -321,18 +322,6 @@ export default function Console() {
   );
 }
 
-function Info({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="info" tabIndex={0} role="note">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden="true">
-        <circle cx="12" cy="12" r="9.2" />
-        <path d="M12 11v5.4" strokeLinecap="round" />
-        <path d="M12 7.6h.01" strokeLinecap="round" />
-      </svg>
-      <span className="tip">{children}</span>
-    </span>
-  );
-}
 
 function parseFrame(frame: string): TimelineEvent | null {
   let kind = "";

@@ -962,6 +962,39 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 .verdict-alarm { border-color: var(--alarm); }
 .verdict-alarm b { color: var(--alarm); }
 
+/* The agent's report, as prose rather than a log line */
+
+.report { color: var(--ink-dim); font-size: 14px; line-height: 1.7; max-width: 82ch; }
+.report h3 { font-size: 15.5px; color: var(--ink); margin: 26px 0 10px; }
+.report h4 { font-size: 14px; color: var(--ink); margin: 20px 0 8px; }
+.report h5 { font-size: 13.5px; color: var(--ink-dim); margin: 16px 0 6px; }
+.report > :first-child { margin-top: 0; }
+.report p { margin: 0 0 12px; }
+.report ul { margin: 0 0 14px; padding-left: 20px; }
+.report li { margin-bottom: 5px; }
+.report strong { color: var(--ink); font-weight: 600; }
+.report code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.report hr { border: 0; border-top: 1px solid var(--line-soft); margin: 22px 0; }
+
+/* Wide tables scroll inside their own box rather than pushing the page. */
+.report-table { overflow-x: auto; margin: 0 0 18px; }
+.report-table table { border-collapse: collapse; min-width: 100%; font-size: 13px; }
+.report-table th,
+.report-table td {
+  border: 1px solid var(--line-soft);
+  padding: 8px 11px;
+  text-align: left;
+  vertical-align: top;
+}
+.report-table th { color: var(--ink); background: var(--raised); font-weight: 600; }
+
 /* The wait, held over the page */
 
 .roll-over {
@@ -1044,8 +1077,33 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 .roll-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .roll-cell.empty-cell { background: #12161c; }
 
-.roll-stage { margin: 0 0 6px; font-size: 15px; color: var(--ink); }
-.roll-latest { margin: 0 0 18px; font-size: 13px; color: var(--sand); }
+.roll-stage { margin: 0 0 16px; font-size: 15px; color: var(--ink); }
+
+/* The last few steps, oldest faded. Enough to see that it is moving and what
+   it is thinking about, without becoming something to read. */
+.roll-steps {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  text-align: left;
+  max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.roll-steps li {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 5px 0;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.roll-steps li:last-child { color: var(--ink); border-bottom: 0; }
+.roll-steps li.bad em { color: var(--alarm); }
+.roll-steps em { font-style: normal; color: var(--calm); white-space: nowrap; }
 
 .roll-time {
   margin: 0;

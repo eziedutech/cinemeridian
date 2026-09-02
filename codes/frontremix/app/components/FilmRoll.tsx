@@ -11,23 +11,29 @@
  * The cells on the roll are their own frames, not a stock animation. What is
  * scrolling past is the footage being worked on.
  */
+import type { TimelineEvent } from "~/components/AgentTimeline";
+
 export function FilmRoll({
   stage,
   elapsed,
   frames,
-  latest,
+  events = [],
 }: {
   stage: string;
   elapsed: number;
   /** Data URLs of the frames being analysed, in cut order. */
   frames: string[];
-  /** The most recent thing the agent did, if it has started. */
-  latest?: string;
+  /** What the agent has done so far, newest last. */
+  events?: TimelineEvent[];
 }) {
   // The strip is rendered twice end to end and translated by exactly half its
   // width, so the loop closes on itself with no jump. With nothing to show it
   // still runs, because an empty roll turning is better than a still one.
   const cells = frames.length > 0 ? [...frames, ...frames] : [];
+
+  // The last handful only. The full list is worth keeping and is shown after
+  // the run; during it, a wall of scrolling text is the same as no text.
+  const steps = events.filter((event) => event.kind === "tool_call").slice(-4);
 
   return (
     <div className="roll-over" role="status" aria-live="polite">
@@ -47,7 +53,19 @@ export function FilmRoll({
         </div>
 
         <p className="roll-stage">{stage}…</p>
-        {latest ? <p className="roll-latest">{latest}</p> : null}
+
+        {steps.length > 0 ? (
+          <ol className="roll-steps">
+            {steps.map((step, index) => (
+              <li key={index} className={step.ok === false ? "bad" : undefined}>
+                <span>{step.text}</span>
+                {step.ok === undefined ? null : (
+                  <em>{step.ok ? step.outcome || "success" : "failed"}</em>
+                )}
+              </li>
+            ))}
+          </ol>
+        ) : null}
 
         <p className="roll-time">
           {formatElapsed(elapsed)}

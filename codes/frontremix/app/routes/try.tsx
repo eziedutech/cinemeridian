@@ -4,6 +4,8 @@ import { Link, useLoaderData } from "@remix-run/react";
 
 import { AgentTimeline, type TimelineEvent } from "~/components/AgentTimeline";
 import { FilmRoll } from "~/components/FilmRoll";
+import { Info } from "~/components/Info";
+import { Report } from "~/components/Report";
 import { FindingsMap } from "~/components/FindingsMap";
 import { apiBase, type Finding } from "~/lib/api";
 import {
@@ -85,6 +87,8 @@ export default function TryYourClips() {
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [sceneChanges, setSceneChanges] = useState<SceneChange[]>([]);
+  const [report, setReport] = useState("");
+  const [showSteps, setShowSteps] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
   const ordered = slots
@@ -106,6 +110,7 @@ export default function TryYourClips() {
     setEvents([]);
     setFindings([]);
     setSceneChanges([]);
+    setReport("");
 
     const startedAt = Date.now();
     const ticking = window.setInterval(
@@ -122,7 +127,7 @@ export default function TryYourClips() {
       setProject(created);
 
       setStage("The agent is investigating");
-      await streamAnalysis(apiBase, created, Number(lat), Number(lon), setEvents);
+      await streamAnalysis(apiBase, created, Number(lat), Number(lon), setEvents, setReport);
 
       setStage("Collecting what it filed");
       setFindings(await fetchProjectFindings(apiBase, created));
@@ -177,20 +182,21 @@ export default function TryYourClips() {
       </header>
 
       <section className="panel" style={{ marginTop: 24 }}>
-        <h2>What this does</h2>
-        <p className="hint" style={{ maxWidth: "78ch" }}>
-          Add your clips in the order they would be cut. Each becomes a take in
-          ClickHouse, along with the measurements read from the two frames a cut
-          actually touches and an ephemeris computed for the time and place your
-          files claim. Then the same agent that reviews the demo scene is pointed
-          at it, through the same MCP server, and you watch it work.
-        </p>
-        <p className="hint" style={{ maxWidth: "78ch", marginBottom: 0 }}>
-          Between {MIN_TAKES} and {MAX_TAKES} clips, up to{" "}
-          {(limits.maxBytes / 1024 / 1024).toFixed(0)} MB and {limits.maxSeconds}{" "}
-          seconds each. Daylight and outdoors, with something casting a shadow.
-          The clips themselves are never uploaded: your browser decodes them and
-          sends two frames per take.
+        <h2>
+          Add your clips, in the order they would be cut
+          <Info>
+            Each clip becomes a take in ClickHouse, with the measurements read
+            from the two frames a cut actually touches and an ephemeris computed
+            for the time and place your files claim. Then the same agent that
+            reviews the demo scene is pointed at it, through the same MCP
+            server. The clips are never uploaded: your browser decodes them and
+            sends two frames per take.
+          </Info>
+        </h2>
+        <p className="hint" style={{ marginBottom: 0 }}>
+          {MIN_TAKES} to {MAX_TAKES} clips, each under{" "}
+          {(limits.maxBytes / 1024 / 1024).toFixed(0)} MB and {limits.maxSeconds}s.
+          Daylight, outdoors, with something casting a shadow.
         </p>
       </section>
 
@@ -228,11 +234,17 @@ export default function TryYourClips() {
       )}
 
       <section className="panel">
-        <h2>Where this was filmed</h2>
-        <p className="hint">
-          One place for the whole scene, which is what a scene means. Filled in
-          from any clip that carried a position.
-        </p>
+        <h2>
+          Where this was filmed
+          <Info>
+            One place for the whole scene, which is what a scene means, filled
+            in from any clip that carried a position. It is asked for rather
+            than worked out: recovering a position from shadows is real
+            celestial navigation, but the shadow length this reads carries about
+            forty percent error, which puts an answer out by hundreds of
+            kilometres.
+          </Info>
+        </h2>
 
         <div className="form-row">
           <label className="field">
@@ -277,10 +289,11 @@ export default function TryYourClips() {
           >
             Use the demo location
           </button>
-          <span className="hint" style={{ margin: 0, alignSelf: "center" }}>
-            {placeNote ??
-              "Your browser knows where it is standing, which helps if you filmed nearby. The demo location is Costa Rica, for trying the machinery on anything."}
-          </span>
+          {placeNote ? (
+            <span className="hint" style={{ margin: 0, alignSelf: "center" }}>
+              {placeNote}
+            </span>
+          ) : null}
         </div>
 
         <label className="choice">
@@ -290,14 +303,16 @@ export default function TryYourClips() {
             onChange={(event) => setStoreFrames(event.target.checked)}
           />
           <span>
-            <b>Let the agent look at the frames</b>
-            <em>
-              Two frames per take are kept for 24 hours, then deleted
-              automatically. Without them the agent can read your measurements
-              but cannot see the pictures, and it says so in its own report: the
-              visual adjudication has nothing to point at. Either way the clips
-              themselves are never uploaded.
-            </em>
+            <b>
+              Let the agent look at the frames
+              <Info>
+                Without them the agent can read your measurements but cannot see
+                the pictures, and it says so in its own report: the visual
+                adjudication has nothing to point at. Either way the clips
+                themselves are never uploaded.
+              </Info>
+            </b>
+            <em>Two frames per take, kept 24 hours, then deleted automatically.</em>
           </span>
         </label>
       </section>
@@ -330,7 +345,7 @@ export default function TryYourClips() {
               (url): url is string => !!url,
             ),
           )}
-          latest={[...events].reverse().find((event) => event.kind === "tool_call")?.text}
+          events={events}
         />
       ) : null}
       {problem ? <p className="banner">{problem}</p> : null}
@@ -380,13 +395,16 @@ export default function TryYourClips() {
         </section>
       ) : null}
 
-      {events.length > 0 ? (
-        <AgentTimeline events={events} running={stage === "The agent is investigating"} elapsed={elapsed} />
-      ) : null}
-
       {findings.length > 0 ? (
         <section className="panel">
-          <h2>What it filed</h2>
+          <h2>
+            What it filed
+            <Info>
+              Each of these is a row the agent wrote into ClickHouse itself,
+              through MCP, and each one waits for a person to accept or dismiss
+              it. Nothing here is a decision the tool has made on your behalf.
+            </Info>
+          </h2>
           <FindingsMap
             findings={findings}
             selectedId={null}
@@ -394,6 +412,40 @@ export default function TryYourClips() {
             onSelect={() => undefined}
             onClearFocus={() => undefined}
           />
+        </section>
+      ) : null}
+
+      {report ? (
+        <section className="panel">
+          <h2>What it concluded</h2>
+          <Report markdown={report} />
+        </section>
+      ) : null}
+
+      {events.length > 0 && !stage ? (
+        <section className="panel">
+          <div className="take-head">
+            <h2 style={{ marginBottom: 0 }}>
+              How it got there
+              <Info>
+                The findings above could have been produced by a script with
+                narration. These are the questions it actually chose to ask, in
+                the order it asked them, and whether each one worked. That is
+                the difference, and it is why they are kept.
+              </Info>
+            </h2>
+            <button
+              type="button"
+              className="ghost small"
+              onClick={() => setShowSteps((open) => !open)}
+            >
+              {showSteps ? "Hide the steps" : `Show all ${events.length} steps`}
+            </button>
+          </div>
+          <ProcessSummary events={events} seconds={elapsed} />
+          {showSteps ? (
+            <AgentTimeline events={events} running={false} elapsed={elapsed} />
+          ) : null}
         </section>
       ) : null}
 
@@ -640,6 +692,7 @@ async function streamAnalysis(
   latitude: number,
   longitude: number,
   onEvent: (update: (current: TimelineEvent[]) => TimelineEvent[]) => void,
+  onReport: (markdown: string) => void,
 ): Promise<void> {
   const response = await fetch(`${base}/api/analyze`, {
     method: "POST",
@@ -670,7 +723,12 @@ async function streamAnalysis(
     buffer = frames.pop() ?? "";
     for (const frame of frames) {
       const event = parseFrame(frame);
-      if (event) onEvent((current) => absorb(current, event));
+      if (!event) continue;
+      // The report is the answer, not a line in the log. Filed between
+      // "counting the rows" and "reading the review queue" it carried the same
+      // weight as the bookkeeping that produced it.
+      if (event.kind === "reasoning") onReport(event.text);
+      else onEvent((current) => absorb(current, event));
     }
   }
 }
@@ -768,4 +826,44 @@ function trim(text: string, limit: number): string {
 function toLocalInput(date: Date): string {
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+
+/**
+ * The run in five numbers.
+ *
+ * A person who has just waited six minutes wants to know what happened before
+ * they want to know each thing that happened. The full list is a click away and
+ * stays that way, because it is evidence rather than reading.
+ */
+function ProcessSummary({
+  events,
+  seconds,
+}: {
+  events: TimelineEvent[];
+  seconds: number;
+}) {
+  const calls = events.filter((event) => event.kind === "tool_call");
+  const count = (name: string) => calls.filter((event) => event.name === name).length;
+  const failed = calls.filter((event) => event.ok === false).length;
+
+  const stats: Array<[string, string]> = [
+    ["Steps", String(calls.length)],
+    ["Questions to the database", String(count("run_query"))],
+    ["Frames looked at", String(count("adjudicate_cut") * 2)],
+    ["Physics calls", String(count("compute_light_rig") + count("compute_render_error"))],
+    ["Time", seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`],
+  ];
+  if (failed > 0) stats.push(["Steps that failed", String(failed)]);
+
+  return (
+    <dl className="facts" style={{ marginTop: 16 }}>
+      {stats.map(([label, value]) => (
+        <div className="fact" key={label}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }

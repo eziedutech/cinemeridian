@@ -228,8 +228,18 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   scrollbar-color: var(--line) transparent;
 }
 
-.strip::-webkit-scrollbar { height: 9px; }
-.strip::-webkit-scrollbar-thumb { background: var(--line); border-radius: 5px; }
+.strip::-webkit-scrollbar { height: 11px; }
+.strip::-webkit-scrollbar-track { background: transparent; }
+
+.strip::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+  transition: background-color 160ms ease;
+}
+
+.strip:hover::-webkit-scrollbar-thumb { background: var(--line); background-clip: content-box; }
 
 .cell {
   flex: 0 0 auto;
@@ -493,7 +503,6 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   font-size: 12.5px;
   max-height: 520px;
   overflow-y: auto;
-  padding-right: 8px;
 }
 
 .tl-row {
@@ -536,6 +545,63 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   backdrop-filter: blur(3px);
 }
 
+/* Scrollbars that stay out of the way.
+ *
+ * A native bar down the edge of a modal cuts across the rounded corner and
+ * competes with the frames, which are the thing anyone opened the modal to
+ * look at. This one is inset from the edge with a transparent border, rounded,
+ * and only appears once the pointer is inside - so the panel reads as a clean
+ * sheet until the reader actually needs to move.
+ *
+ * scrollbar-gutter keeps the space reserved either way, so content does not
+ * jump sideways when the bar appears.
+ */
+.sheet, .player, .timeline {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  scrollbar-gutter: stable;
+}
+
+.sheet:hover, .player:hover, .timeline:hover {
+  scrollbar-color: var(--line) transparent;
+}
+
+.sheet::-webkit-scrollbar,
+.player::-webkit-scrollbar,
+.timeline::-webkit-scrollbar {
+  width: 11px;
+}
+
+.sheet::-webkit-scrollbar-track,
+.player::-webkit-scrollbar-track,
+.timeline::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sheet::-webkit-scrollbar-thumb,
+.player::-webkit-scrollbar-thumb,
+.timeline::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+  transition: background-color 160ms ease;
+}
+
+.sheet:hover::-webkit-scrollbar-thumb,
+.player:hover::-webkit-scrollbar-thumb,
+.timeline:hover::-webkit-scrollbar-thumb {
+  background: var(--ink-faint);
+  background-clip: content-box;
+}
+
+.sheet::-webkit-scrollbar-thumb:hover,
+.player::-webkit-scrollbar-thumb:hover,
+.timeline::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-dim);
+  background-clip: content-box;
+}
+
 .sheet, .player {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -576,6 +642,38 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 }
 
 .ends { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.ends-single { grid-template-columns: 1.5fr 1fr; }
+
+/* Grid children default to min-width: auto, which means a long paragraph sets
+   its own column's minimum and quietly overrides the fr ratio - the explanation
+   panel was ending up twice the width of the evidence frame it sits beside. */
+.ends > * { min-width: 0; }
+
+/* Where a second frame would go for findings that no frame can show. It gets
+   the same weight as an image so the row does not read as half broken. */
+.no-evidence {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  padding: 20px 22px;
+  background: var(--raised);
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  /* Match the frame's height rather than claiming an aspect ratio of its own,
+     which is another way this panel used to win space it had no claim to. */
+  align-self: stretch;
+}
+
+.no-evidence p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink-dim);
+  line-height: 1.65;
+}
+
+.no-evidence-mark { color: var(--sand); }
+.no-evidence-mark svg { width: 22px; height: 22px; }
 .ends figure { margin: 0; }
 
 .ends img {
@@ -598,6 +696,36 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   gap: 14px 26px;
   margin: 24px 0 0;
 }
+
+/* The evidence modal reads as prose rather than as a spec sheet, so its rows
+   run full width instead of sitting in the two-column grid the take dialog
+   uses for short values. */
+.evidence-facts { grid-template-columns: 1fr; gap: 16px; }
+
+.fact-highlight {
+  padding: 13px 16px;
+  background: rgba(201, 170, 125, 0.08);
+  border-radius: 8px;
+}
+
+.fact-highlight dt { color: var(--sand); }
+
+/* Severity as a small tag beside the title, using the same colours as the
+   ribbon on the card it came from. */
+.ribbon-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 5px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #16171b;
+  background: var(--ink-faint);
+  line-height: 1;
+}
+
+.ribbon-inline svg { display: block; }
 
 .fact dt { font-size: 11.5px; color: var(--ink-faint); margin-bottom: 3px; }
 .fact dd { margin: 0; font-size: 14px; }
@@ -682,7 +810,41 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 
 /* Odds and ends */
 
-.empty { color: var(--ink-faint); font-size: 13.5px; padding: 8px 0; }
+.empty {
+  color: var(--ink-faint);
+  font-size: 13.5px;
+  padding: 8px 0;
+  line-height: 1.65;
+}
+
+/* A slow pulse, so a panel that is waiting cannot be mistaken for one that
+   has hung. */
+.pulse {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 9px;
+  border-radius: 50%;
+  background: var(--sand);
+  vertical-align: middle;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse { animation: none; opacity: 0.7; }
+}
+
+.elapsed {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--sand);
+  margin-left: 9px;
+}
 
 .stat-row { display: flex; gap: 28px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; }
 .stat b { display: block; font-size: 20px; font-weight: 600; color: var(--ink); font-family: var(--sans); }

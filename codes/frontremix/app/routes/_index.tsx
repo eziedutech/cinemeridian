@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { json, type LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useRevalidator } from "@remix-run/react";
 
@@ -47,7 +47,21 @@ export default function Console() {
   const [goToIndex, setGoToIndex] = useState<number | null>(null);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [running, setRunning] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
+
+  // A run takes minutes, and the first event can be twenty seconds out. A
+  // panel with no clock on it is indistinguishable from a panel that has hung.
+  useEffect(() => {
+    if (!running) return;
+    setElapsed(0);
+    const started = Date.now();
+    const timer = window.setInterval(
+      () => setElapsed(Math.round((Date.now() - started) / 1000)),
+      1000,
+    );
+    return () => window.clearInterval(timer);
+  }, [running]);
 
   const analyse = useCallback(
     async (focus?: Take) => {
@@ -84,7 +98,11 @@ export default function Console() {
 
           // SSE frames are separated by a blank line; anything after the last
           // one is a partial frame and has to wait for more bytes.
-          const frames = buffer.split("\n\n");
+          // The separator is CRLF CRLF, not LF LF. Splitting on "\n\n" matches
+          // nothing at all against a \r\n\r\n stream, so every event gets
+          // silently swallowed and the timeline sits empty for the whole run,
+          // then goes blank again when it ends. Accept either ending.
+          const frames = buffer.split(/\r?\n\r?\n/);
           buffer = frames.pop() ?? "";
           for (const frame of frames) {
             const event = parseFrame(frame);
@@ -251,15 +269,9 @@ export default function Console() {
             onSelect={setSelected}
             onClearFocus={() => setFocusTakeId(null)}
           />
-          <EvidencePair
-            finding={selected}
-            apiBase={apiBase}
-            bucket={bucket}
-            framesPerTake={framesPerTake}
-          />
         </div>
         <div>
-          <AgentTimeline events={events} running={running} />
+          <AgentTimeline events={events} running={running} elapsed={elapsed} />
         </div>
       </div>
 
@@ -273,6 +285,14 @@ export default function Console() {
         production. The agent only ever recommends: it does not modify the edit,
         submit a render, or mark its own findings reviewed.
       </footer>
+
+      <EvidencePair
+        finding={selected}
+        apiBase={apiBase}
+        bucket={bucket}
+        framesPerTake={framesPerTake}
+        onClose={() => setSelected(null)}
+      />
 
       <TakeDialog
         take={openTake}

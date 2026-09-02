@@ -16,9 +16,11 @@ export type TimelineEvent = {
 export function AgentTimeline({
   events,
   running,
+  elapsed = 0,
 }: {
   events: TimelineEvent[];
   running: boolean;
+  elapsed?: number;
 }) {
   return (
     <div className="panel">
@@ -29,10 +31,29 @@ export function AgentTimeline({
 
       {events.length === 0 ? (
         <p className="empty">
-          {running ? "Waiting for the first step…" : "Run an analysis to watch it work."}
+          {running ? (
+            <>
+              <span className="pulse" aria-hidden="true" />
+              Reaching the agent and warming the ClickHouse MCP server. The first
+              step usually lands within twenty seconds.
+              <span className="elapsed">{elapsed}s</span>
+            </>
+          ) : (
+            "Run an analysis to watch it work."
+          )}
         </p>
       ) : (
         <div className="timeline">
+          {running ? (
+            <div className="tl-row">
+              <span className="tl-time">{elapsed}s</span>
+              <span className="tl-kind call">
+                <span className="pulse" aria-hidden="true" />
+                working
+              </span>
+              <span className="tl-body">still going</span>
+            </div>
+          ) : null}
           {events.map((event, index) => (
             <div className="tl-row" key={index}>
               <span className="tl-time">{(event.at / 1000).toFixed(1)}s</span>

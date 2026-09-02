@@ -7,7 +7,8 @@
     "build": "remix vite:build",
     "dev": "remix vite:dev",
     "start": "remix-serve ./build/server/index.js",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "test:lib": "node app/lib/mp4meta.test.mjs && node app/lib/extract.test.mjs"
   },
   "dependencies": {
     "@remix-run/node": "^2.15.0",
@@ -25,5 +26,7 @@
     "vite": "^5.4.11",
     "vite-tsconfig-paths": "^5.1.2"
   },
-  "engines": { "node": ">=20.0.0" }
+  "engines": {
+    "node": ">=20.0.0"
+  }
 }

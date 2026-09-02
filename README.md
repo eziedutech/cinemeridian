@@ -425,6 +425,14 @@ the compression flattens real differences too, so this errs towards missing an
 error rather than inventing one, which is the right direction for a tool an
 editor is meant to trust.
 
+The two browser-side pieces have their own tests, run with `npm run test:lib`
+in `codes/frontremix`. The MP4 reader is driven against containers assembled
+byte by byte rather than against a real clip: they carry no video at all, which
+is the point, since everything the reader looks at lives in `moov` and a file
+that is nothing but a correct `moov` makes every byte one somebody chose. The
+frame planner is tested separately, because the decoding needs a browser but
+the choosing does not, and the choosing is where a mistake would be silent.
+
 Measured on the demo frames, three runs each: an honest seven-minute cut comes
 back consistent every time (agreement 0.94 to 1.41 against a tolerance of 1.67),
 and the take with the seventy-minute slate error comes back suspect every time

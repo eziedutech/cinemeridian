@@ -136,7 +136,7 @@ export async function extractHeadAndTail(
  * The others sit just inside, so a person can see whether the end frames are
  * representative or happened to catch something odd.
  */
-function planTimes(
+export function planTimes(
   duration: number,
   framesPerEnd: number,
   spacing: number,

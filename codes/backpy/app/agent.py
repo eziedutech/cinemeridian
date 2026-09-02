@@ -25,7 +25,7 @@ from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from google.genai import types
 
 from app.prompts import CONTINUITY_AGENT_INSTRUCTION
-from app.tools import agent_tools
+from app.tools import agent_tools, vision
 from app.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -134,6 +134,11 @@ def build_agent(
             "CG shots by comparing observed frames against computed physics."
         ),
         instruction=CONTINUITY_AGENT_INSTRUCTION,
+        # The same posture the vision tools use, and for the same reason: a
+        # false block here would drop a finding without saying so.
+        generate_content_config=types.GenerateContentConfig(
+            safety_settings=vision.SAFETY_SETTINGS,
+        ),
         tools=[
             toolset,
             # Physics, vision and the write-back. Each one does something the

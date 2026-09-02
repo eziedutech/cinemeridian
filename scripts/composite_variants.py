@@ -226,45 +226,101 @@ def apply_color_temperature(image: Image.Image, kelvin: int) -> Image.Image:
 def stamp_footprints(
     image: Image.Image, count: int, meta: dict, seed_take: str
 ) -> None:
-    """Stamp exactly `count` footprints into the sand.
+    """Press `count` footprints into the sand, as a trail somebody walked.
 
-    Placement is deterministic per take so a frame regenerates identically, but
-    the *count* is the variable under test. Footprints only accumulate, which
-    is what makes a decreasing count across a cut a continuity error rather
-    than a matter of taste.
+    Two things make a footprint read as a footprint rather than as a smudge,
+    and the first version of this had neither.
+
+    A print is a *depression*, not a mark. Wet sand pushed aside is darker
+    inside the hollow and catches a highlight on the rim facing the light, so
+    each one is drawn as a dark core with a bright crescent on its sun-facing
+    edge. Without that rim they read as out-of-focus dots.
+
+    And prints come from walking. They alternate left and right along a path
+    with a consistent stride, they get smaller and closer together as the path
+    recedes, and they point the way the walker was going. Scattering them at
+    random produces something nobody reads as footsteps, which matters here
+    because the count is the measurement the whole monotonic finding rests on.
+
+    Placement is deterministic per take, so a frame regenerates identically and
+    the count is the only thing that varies.
     """
     import random
 
     width, height = image.size
     rng = random.Random(f"{seed_take}-prints")
-    layer = Image.new("L", image.size, 0)
-    draw = ImageDraw.Draw(layer)
 
-    # Keep them on the open sand below the figures and clear of the dune grass.
-    # With nobody in frame - the insert, the empty CG plate - the sand starts
-    # higher and the prints have the whole lower half to live in.
     figures = meta.get("figures") or []
-    top = (max(f["feet_y"] for f in figures) + 0.01) if figures else 0.45
-    for _ in range(count):
-        x = rng.uniform(0.30, 0.68) * width
-        y = rng.uniform(top, min(top + 0.14, 0.86)) * height
-        # Perspective: prints nearer the camera are larger.
-        scale = 1.0 + (y / height - top) * 3.0
-        long_axis = 13.0 * scale
-        # A footprint is a pair, not a dot. Drawing left and right offset
-        # slightly is what makes a count readable as footsteps rather than
-        # as sensor noise.
-        for side in (-1, 1):
-            cx = x + side * long_axis * 0.34
-            cy = y + side * long_axis * 0.16
-            draw.ellipse(
-                [cx - long_axis * 0.26, cy - long_axis * 0.52,
-                 cx + long_axis * 0.26, cy + long_axis * 0.52],
-                fill=120,
-            )
+    near = min(max(f["feet_y"] for f in figures) + 0.05, 0.80) if figures else 0.78
+    far = near - 0.14
 
-    layer = layer.filter(ImageFilter.GaussianBlur(1.1))
-    image.paste(Image.new("RGB", image.size, (28, 26, 24)), (0, 0), layer)
+    # One trail, walking away from camera and slightly across frame. Starting
+    # near the bottom and receding is what gives the perspective something to
+    # work against.
+    start_x = rng.uniform(0.34, 0.46)
+    end_x = start_x + rng.uniform(0.14, 0.26)
+    heading = math.atan2(end_x - start_x, 1.0)
+
+    dark = Image.new("L", image.size, 0)
+    light = Image.new("L", image.size, 0)
+    dark_draw = ImageDraw.Draw(dark)
+    light_draw = ImageDraw.Draw(light)
+
+    for index in range(count):
+        # Along the trail, 0 at the near end and 1 at the far end.
+        t = index / max(count - 1, 1)
+        y = (near + (far - near) * t) * height
+        # Perspective: everything shrinks toward the far end.
+        scale = 1.0 - 0.45 * t
+        length = 15.0 * scale
+        # Left and right alternate either side of the line of travel.
+        side = 1 if index % 2 else -1
+        offset = side * length * 0.52
+        x = (start_x + (end_x - start_x) * t) * width + offset
+
+        angle = heading + math.radians(rng.uniform(-7, 7))
+        cos_a, sin_a = math.cos(angle), math.sin(angle)
+
+        # The hollow: an oval much longer than it is wide, tipped along the
+        # walk. It has to start at better than three to one, because the
+        # foreshortening below squashes the long axis and an oval that starts
+        # at two to one comes out a circle - which is what the first version
+        # did, and why the prints read as dents rather than feet.
+        half_l, half_w = length * 0.80, length * 0.25
+        hollow = [
+            (
+                x + cos_a * half_w * px - sin_a * half_l * py,
+                y + sin_a * half_w * px + cos_a * half_l * py * 0.62,
+            )
+            for px, py in _OVAL
+        ]
+        # Nearer prints are fresher and deeper; the far ones fade into the
+        # sand, which is both true and what stops the trail reading as a
+        # row of identical stamps.
+        dark_draw.polygon(hollow, fill=int(150 - 45 * t))
+
+        # The rim, offset far enough toward the light that it survives the
+        # blur and shows as a crescent along one edge. Too small an offset and
+        # the hollow simply covers it.
+        rim = [(px + length * 0.22, py - length * 0.26) for px, py in hollow]
+        light_draw.polygon(rim, fill=96)
+
+    # Blur just enough to sit in the sand grain, not enough to smear.
+    dark = dark.filter(ImageFilter.GaussianBlur(0.8))
+    light = light.filter(ImageFilter.GaussianBlur(1.1))
+
+    # Rim first, then the hollow over it, so the highlight shows as a crescent.
+    image.paste(Image.new("RGB", image.size, (196, 188, 176)), (0, 0), light)
+    image.paste(Image.new("RGB", image.size, (44, 40, 36)), (0, 0), dark)
+
+
+#: A unit oval, sampled once. Cheaper than trigonometry per print, and the
+#: shape is the same for every one of them.
+_OVAL = [
+    (math.cos(math.radians(a)), math.sin(math.radians(a)))
+    for a in range(0, 360, 24)
+]
+
 
 
 def render(spec: FrameSpec, out_path: Path) -> bool:

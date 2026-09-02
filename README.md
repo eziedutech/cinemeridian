@@ -198,7 +198,11 @@ codes/
       tools/                 vision, prescribe, audit, agent_tools
     tests/
   frontremix/                Remix continuity console
-assets/                      synthetic plates, and the answer key
+assets/
+  plates/                    the eight base plates, and their hand-measured anchors
+  frames/sc14/su01/t03/      one master take, all eight frames, head to tail
+  frames/sc14/su07/t02/      the footprint insert, the same
+  ground_truth.json          the planted errors, so a hit rate can be checked
 ```
 
 ## Running locally
@@ -312,6 +316,13 @@ never committed under any circumstances.
 Local development uses ADC (`gcloud auth application-default login`); Cloud Run
 uses the runtime service account. No JSON key is ever downloaded.
 
+Safety filters are set explicitly rather than left at whatever the default is
+on the day, in [`tools/vision.py`](codes/backpy/app/tools/vision.py) and on the
+agent. The realistic failure here is not unsafe output - every image is a beach
+plate this project generated - but a *false* block: a frame refused for a
+reason nobody can inspect silently becomes a missing observation and a
+contradiction the agent never sees.
+
 ## What is real and what is simulated
 
 - All footage is **synthetic and self-made**. The base plates come from Gemini
@@ -395,9 +406,13 @@ because framing is identical within a setup and the bias travels with framing.
 
 ## Credits and licenses
 
-- **Google ADK**, **google-genai**, **Vertex AI** (Gemini 2.5 Flash for
-  perception and adjudication, Gemini 3 Pro Image for the base plates) - Google
-  Cloud. This project uses no AI SDK from any other provider.
+- **Agent Development Kit**, installed through
+  `google-cloud-aiplatform[adk]`, which is the path the hackathon's own setup
+  instructions give. The agent is an ADK `LlmAgent` with an `McpToolset`; see
+  [`codes/backpy/app/agent.py`](codes/backpy/app/agent.py).
+- **google-genai** and **Vertex AI**: Gemini 3.7 Flash for perception,
+  adjudication and the agent itself, Gemini 3 Pro Image for the base plates.
+  This project uses no AI SDK from any other provider.
 - **[mcp-clickhouse](https://github.com/ClickHouse/mcp-clickhouse)** - ClickHouse,
   Apache 2.0. Run as a stdio subprocess; not vendored.
 - **ClickHouse Cloud** - the analytical database.

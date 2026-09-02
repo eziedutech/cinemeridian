@@ -173,6 +173,27 @@ class Figure:
         return max(self.feet_y - self.head_y, 1e-4)
 
 
+#: Safety filters, set explicitly rather than left to whatever the default
+#: happens to be on the day.
+#:
+#: Every image the model sees here is a beach plate this project generated
+#: itself, and every prompt asks for a measurement. The realistic failure is
+#: not unsafe output, it is a *false* block: a frame refused for some reason
+#: nobody can inspect, which silently becomes a missing observation and a
+#: contradiction the agent never sees. So the threshold is set to catch high
+#: confidence harm and let the rest through, and it is written down here so
+#: the choice is reviewable instead of implicit.
+SAFETY_SETTINGS = [
+    types.SafetySetting(category=category, threshold="BLOCK_ONLY_HIGH")
+    for category in (
+        "HARM_CATEGORY_HATE_SPEECH",
+        "HARM_CATEGORY_DANGEROUS_CONTENT",
+        "HARM_CATEGORY_HARASSMENT",
+        "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+    )
+]
+
+
 @lru_cache(maxsize=4)
 def _client(project_id: str, location: str) -> Client:
     """One client per project/location, held for the process lifetime.
@@ -210,6 +231,7 @@ def locate_figures(
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=FIGURE_SCHEMA,
+            safety_settings=SAFETY_SETTINGS,
         ),
     )
     payload = json.loads(response.text)
@@ -235,6 +257,7 @@ def observe_frame(
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=OBSERVATION_SCHEMA,
+            safety_settings=SAFETY_SETTINGS,
         ),
     )
     observations = json.loads(response.text).get("observations", [])
@@ -320,6 +343,7 @@ def adjudicate_pair_by_uri(
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=ADJUDICATION_SCHEMA,
+            safety_settings=SAFETY_SETTINGS,
         ),
     )
     return json.loads(response.text)
@@ -357,6 +381,7 @@ def adjudicate_pair(
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=ADJUDICATION_SCHEMA,
+            safety_settings=SAFETY_SETTINGS,
         ),
     )
     return json.loads(response.text)

@@ -37,11 +37,18 @@ dist/
 data/
 
 # Aset besar hasil generate
-# Plate dasar & beberapa frame contoh tetap di-commit supaya juri bisa
-# menjalankan demo; sisanya dihasilkan ulang oleh scripts/.
+# Plate dasar ikut, plus DUA take contoh lengkap dengan 8 frame kepala-ke-ekor,
+# supaya orang yang clone repo bisa melihat bukti tanpa menjalankan pipeline
+# penuh dulu. Sisa 28 take dihasilkan ulang oleh scripts/composite_variants.py.
 assets/frames/**
-!assets/frames/sc14/su02/t03/
-!assets/frames/sc14/su02/t03/**
+!assets/frames/sc14/
+!assets/frames/sc14/frame_truth.json
+!assets/frames/sc14/su01/
+!assets/frames/sc14/su01/t03/
+!assets/frames/sc14/su01/t03/**
+!assets/frames/sc14/su07/
+!assets/frames/sc14/su07/t02/
+!assets/frames/sc14/su07/t02/**
 
 # OS & editor
 .DS_Store

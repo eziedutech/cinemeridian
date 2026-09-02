@@ -3,6 +3,7 @@ import { json, type LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useRevalidator } from "@remix-run/react";
 
 import { AgentTimeline, type TimelineEvent } from "~/components/AgentTimeline";
+import { describeCall, describeOutcome } from "~/lib/narrate";
 import { EvidencePair } from "~/components/EvidencePair";
 import { Filmstrip } from "~/components/Filmstrip";
 import { FindingsMap } from "~/components/FindingsMap";
@@ -106,7 +107,7 @@ export default function Console() {
           buffer = frames.pop() ?? "";
           for (const frame of frames) {
             const event = parseFrame(frame);
-            if (event) setEvents((current) => [...current, event]);
+            if (event) setEvents((current) => absorb(current, event));
           }
         }
       } catch (caught) {
@@ -353,11 +354,27 @@ function parseFrame(frame: string): TimelineEvent | null {
   switch (kind) {
     case "tool_call": {
       const args = (payload.args ?? {}) as Record<string, string>;
-      const detail = args.query ?? Object.values(args).join(" · ");
-      return { kind: "tool_call", at, text: `${payload.name}  ${trim(detail, 400)}` };
+      const name = String(payload.name ?? "");
+      return {
+        kind: "tool_call",
+        at,
+        name,
+        text: describeCall(name, args),
+        detail: trim(args.query ?? Object.values(args).join(" · "), 600),
+      };
     }
     case "tool_result":
-      return { kind: "tool_result", at, text: trim(String(payload.result ?? ""), 240) };
+      return {
+        kind: "tool_result",
+        at,
+        name: String(payload.name ?? ""),
+        ok: payload.ok !== false,
+        text: describeOutcome(
+          payload.ok !== false,
+          typeof payload.rows === "number" ? payload.rows : null,
+          String(payload.detail ?? ""),
+        ),
+      };
     case "reasoning":
       return { kind: "reasoning", at, text: String(payload.text ?? "") };
     case "error":
@@ -369,6 +386,38 @@ function parseFrame(frame: string): TimelineEvent | null {
     default:
       return null;
   }
+}
+
+/**
+ * Fold a result into the call it answers, so the timeline reads one line per
+ * action rather than two.
+ *
+ * Matched by name, walking backwards to the most recent call still waiting on
+ * an answer. Tools run one at a time here, so that is unambiguous; if a result
+ * ever arrives with no call to match, it is kept as its own row rather than
+ * dropped, because a silently discarded event is worse than an odd looking one.
+ */
+function absorb(events: TimelineEvent[], incoming: TimelineEvent): TimelineEvent[] {
+  if (incoming.kind !== "tool_result") return [...events, incoming];
+
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const candidate = events[index];
+    if (
+      candidate.kind === "tool_call" &&
+      candidate.name === incoming.name &&
+      candidate.ok === undefined
+    ) {
+      const merged = [...events];
+      merged[index] = {
+        ...candidate,
+        ok: incoming.ok,
+        outcome: incoming.text,
+        took: incoming.at - candidate.at,
+      };
+      return merged;
+    }
+  }
+  return [...events, incoming];
 }
 
 function trim(text: string, limit: number): string {

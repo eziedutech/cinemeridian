@@ -531,6 +531,64 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 
 .tl-body.reasoning { color: var(--ink); font-family: var(--sans); font-size: 13.5px; }
 
+/* The description of an action reads as prose; only the query underneath is
+   code, so only the query keeps the monospace face. */
+.tl-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+/* Whether it worked, said in a word. Colour is the fastest way to read a
+   column of these, but the word is there for anyone the colour does not reach. */
+.tl-verdict {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.tl-verdict.good { color: var(--calm); border-color: color-mix(in srgb, var(--calm) 45%, transparent); }
+.tl-verdict.bad { color: var(--alarm); border-color: color-mix(in srgb, var(--alarm) 45%, transparent); }
+.tl-verdict em { font-style: normal; color: var(--ink-faint); }
+
+.tl-more {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.tl-more:hover { color: var(--ink-dim); }
+
+.tl-detail {
+  display: block;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Modals */
 
 .scrim {

@@ -226,3 +226,81 @@ class TestInspectRoute:
         head, tail = response.json()["frames"]
         assert head["moment"] != tail["moment"]
         assert tail["inferred"]["sun_elevation_deg"] < head["inferred"]["sun_elevation_deg"]
+
+
+class TestToolResultSummary:
+    """What the timeline is told about an action that just finished.
+
+    The console shows one line per action now, so it needs to know whether the
+    action worked and what came back rather than being handed the payload. Two
+    shapes arrive: the MCP tools answer with a content envelope carrying an
+    `isError` flag and the real answer as JSON inside `structuredContent`, and
+    the tools in `agent_tools` answer with a plain dictionary. Both are reduced
+    here, and getting either wrong would put a green tick on a failed query.
+    """
+
+    def summarise(self, response):
+        from app.main import _summarise_tool_result
+
+        return _summarise_tool_result("run_query", response)
+
+    def test_counts_the_rows_an_mcp_query_returned(self):
+        result = self.summarise(
+            {
+                "content": [{"type": "text", "text": "..."}],
+                "structuredContent": {
+                    "result": '{"columns": ["a", "b"], "rows": [[1, 2], [3, 4], [5, 6]]}'
+                },
+                "isError": False,
+            }
+        )
+        assert result["ok"] is True
+        assert result["rows"] == 3
+
+    def test_a_query_that_returned_nothing_is_still_a_success(self):
+        """Zero rows is an answer. It must not be dressed up as a failure."""
+        result = self.summarise(
+            {
+                "structuredContent": {"result": '{"columns": ["a"], "rows": []}'},
+                "isError": False,
+            }
+        )
+        assert result["ok"] is True
+        assert result["rows"] == 0
+
+    def test_an_mcp_error_is_reported_as_a_failure(self):
+        result = self.summarise(
+            {
+                "content": [{"type": "text", "text": "readonly mode"}],
+                "isError": True,
+            }
+        )
+        assert result["ok"] is False
+
+    def test_counts_tables_as_readily_as_rows(self):
+        result = self.summarise(
+            {
+                "structuredContent": {
+                    "result": '{"tables": [{"name": "takes"}, {"name": "ephemeris"}]}'
+                },
+                "isError": False,
+            }
+        )
+        assert result["rows"] == 2
+
+    def test_a_function_tool_speaks_for_itself(self):
+        result = self.summarise({"recorded": True, "sql": "INSERT INTO ..."})
+        assert result["ok"] is True
+        assert "recorded" in result["detail"]
+
+    def test_a_function_tool_reporting_an_error_is_a_failure(self):
+        result = self.summarise({"error": "no such take"})
+        assert result["ok"] is False
+        assert "no such take" in result["detail"]
+
+    def test_nonsense_is_survived_rather_than_raised(self):
+        """A summary is cosmetic. It must never take an investigation down."""
+        for payload in (None, "a string", 17, {"structuredContent": {"result": "{["}}):
+            result = self.summarise(payload)
+            assert result["ok"] is True
+            assert result["rows"] is None

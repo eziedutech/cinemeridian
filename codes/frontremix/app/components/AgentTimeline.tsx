@@ -1,17 +1,34 @@
+import { useState } from "react";
+
 export type TimelineEvent = {
   kind: "started" | "tool_call" | "tool_result" | "reasoning" | "error" | "done";
   at: number;
   text: string;
+  /** Which tool this row is about, used to pair a result with its call. */
+  name?: string;
+  /** Whether the action succeeded. Undefined while it is still running. */
+  ok?: boolean;
+  /** What came back, in a few words. */
+  outcome?: string;
+  /** How long the action took, in milliseconds. */
+  took?: number;
+  /** The query or arguments, kept for anyone who wants to check the work. */
+  detail?: string;
 };
 
 /**
- * What the agent did, in order.
+ * What the agent did, in order, one line per action.
  *
  * This panel is the honest half of the demo. A findings list alone could have
- * been produced by a hard-coded pipeline; the queries the agent wrote, the
- * candidates it dismissed, and the adjudication it chose to spend are what
- * distinguish an agent from a script with narration. So they are shown, not
- * summarised.
+ * been produced by a hard-coded pipeline; the questions the agent chose to ask,
+ * the candidates it dismissed, and the adjudication it chose to spend are what
+ * separate an agent from a script with narration.
+ *
+ * Which is why the query text is kept rather than thrown away, and also why it
+ * is no longer what the reader meets first. A wall of SQL is proof of work to
+ * somebody who reads SQL and noise to the editor this is built for, so each
+ * action leads with a sentence and a verdict, and the query sits one click
+ * underneath.
  */
 export function AgentTimeline({
   events,
@@ -26,7 +43,8 @@ export function AgentTimeline({
     <div className="panel">
       <h2>Agent timeline</h2>
       <p className="hint">
-        Every query, every physics call, every judgement - as it happened.
+        Every question it asked, every physics call, every judgement - as it
+        happened, and whether each one worked.
       </p>
 
       {events.length === 0 ? (
@@ -55,17 +73,7 @@ export function AgentTimeline({
             </div>
           ) : null}
           {events.map((event, index) => (
-            <div className="tl-row" key={index}>
-              <span className="tl-time">{(event.at / 1000).toFixed(1)}s</span>
-              <span className={`tl-kind ${kindClass(event.kind)}`}>
-                {LABEL[event.kind]}
-              </span>
-              <span
-                className={`tl-body${event.kind === "reasoning" ? " reasoning" : ""}`}
-              >
-                {event.text}
-              </span>
-            </div>
+            <Row event={event} key={index} />
           ))}
         </div>
       )}
@@ -73,9 +81,41 @@ export function AgentTimeline({
   );
 }
 
+function Row({ event }: { event: TimelineEvent }) {
+  const [open, setOpen] = useState(false);
+  const hasDetail = Boolean(event.detail);
+
+  return (
+    <div className="tl-row">
+      <span className="tl-time">{(event.at / 1000).toFixed(1)}s</span>
+      <span className={`tl-kind ${kindClass(event.kind)}`}>{LABEL[event.kind]}</span>
+      <span className={`tl-body${event.kind === "reasoning" ? " reasoning" : ""}`}>
+        <span className="tl-line">
+          <span>{event.text}</span>
+          {event.ok === undefined ? null : (
+            <span className={`tl-verdict ${event.ok ? "good" : "bad"}`}>
+              {event.ok ? "success" : "failed"}
+              {event.outcome ? <em>{event.outcome}</em> : null}
+              {typeof event.took === "number" && event.took > 0 ? (
+                <em>{(event.took / 1000).toFixed(1)}s</em>
+              ) : null}
+            </span>
+          )}
+          {hasDetail ? (
+            <button type="button" className="tl-more" onClick={() => setOpen(!open)}>
+              {open ? "hide the query" : "show the query"}
+            </button>
+          ) : null}
+        </span>
+        {hasDetail && open ? <code className="tl-detail">{event.detail}</code> : null}
+      </span>
+    </div>
+  );
+}
+
 const LABEL: Record<TimelineEvent["kind"], string> = {
   started: "start",
-  tool_call: "call",
+  tool_call: "did",
   tool_result: "result",
   reasoning: "says",
   error: "error",
@@ -84,6 +124,6 @@ const LABEL: Record<TimelineEvent["kind"], string> = {
 
 function kindClass(kind: TimelineEvent["kind"]): string {
   if (kind === "tool_call") return "call";
-  if (kind === "tool_result") return "result";
+  if (kind === "error") return "bad";
   return kind;
 }

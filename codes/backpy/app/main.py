@@ -260,6 +260,7 @@ async def analyze(request: AnalyzeRequest):
                         "data": json.dumps(
                             {
                                 "name": response.name,
+                                **_summarise_tool_result(response.name, response.response),
                                 "result": str(response.response)[:4000],
                                 "elapsed_ms": int((time.perf_counter() - started) * 1000),
                             }
@@ -372,6 +373,52 @@ async def takes(scene_id: str = "sc14", edit_version: str = "v14") -> dict[str, 
 #: past this is not a frame from our extractor.
 MAX_FRAME_BYTES = 4 * 1024 * 1024
 MAX_FRAMES_PER_INSPECT = 8
+
+
+def _summarise_tool_result(name: str, response: Any) -> dict[str, Any]:
+    """Turn a tool's return value into something a person can read at a glance.
+
+    The console shows one line per action, so what it needs is whether the
+    action worked and what came back, not the payload. Two shapes arrive here.
+    MCP tools answer with a content envelope carrying an `isError` flag and the
+    real answer as JSON inside `structuredContent`; the function tools in
+    `agent_tools` answer with a plain dictionary. Both are reduced to the same
+    three facts.
+
+    Nothing here raises. A summary that fails is a cosmetic loss, and taking a
+    running investigation down over one would not be a trade worth making.
+    """
+    ok = True
+    rows: int | None = None
+    detail = ""
+
+    try:
+        if isinstance(response, dict):
+            if "isError" in response:
+                ok = not response.get("isError")
+
+            payload = response.get("structuredContent")
+            raw = payload.get("result") if isinstance(payload, dict) else None
+            if isinstance(raw, str):
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    for key in ("rows", "tables", "databases"):
+                        if isinstance(parsed.get(key), list):
+                            rows = len(parsed[key])
+                            break
+
+            # The function tools say what they did in their own words, and
+            # those words are better than anything that could be inferred.
+            for key in ("error", "note", "recorded", "would_an_audience_notice"):
+                if key in response:
+                    detail = f"{key}: {response[key]}"
+                    break
+            if response.get("error"):
+                ok = False
+    except Exception:  # noqa: BLE001 - a summary is never worth an exception
+        pass
+
+    return {"ok": ok, "rows": rows, "detail": detail[:200]}
 
 
 @app.post("/api/inspect")

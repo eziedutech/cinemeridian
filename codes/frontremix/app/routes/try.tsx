@@ -2,8 +2,9 @@ import { useCallback, useRef, useState } from "react";
 import { json, type LoaderFunctionArgs } from "@remix-run/node";
 import { Link, useLoaderData } from "@remix-run/react";
 
-import { SunIcon } from "~/components/Icons";
-import { apiBase } from "~/lib/api";
+import { AgentTimeline, type TimelineEvent } from "~/components/AgentTimeline";
+import { FindingsMap } from "~/components/FindingsMap";
+import { apiBase, type Finding } from "~/lib/api";
 import {
   ClipTooLarge,
   ClipTooLong,
@@ -12,206 +13,132 @@ import {
   type ExtractedFrame,
 } from "~/lib/extract";
 import { composePair, DEFAULT_GRID } from "~/lib/gridpair";
+import { describeCall, describeOutcome } from "~/lib/narrate";
 import { readMp4Metadata, type Mp4Metadata } from "~/lib/mp4meta";
+
+/** Matches MIN_TAKES and MAX_TAKES in app/tools/project.py. The ceiling is a
+ *  quota rather than a limit of the code: every take costs two vision calls at
+ *  ingest, and this project has already met "Resource exhausted" at six calls
+ *  in quick succession. */
+const MIN_TAKES = 2;
+const MAX_TAKES = 6;
 
 export async function loader(_args: LoaderFunctionArgs) {
   return json({ apiBase: apiBase(), limits: DEFAULT_LIMITS });
 }
 
-type Inferred = {
-  camera_heading_deg: number | null;
-  heading_uncertainty_deg: number | null;
-  sun_azimuth_deg: number;
-  sun_elevation_deg: number;
-  expected_shadow_length_ratio: number;
-  observed_shadow_length_ratio: number | null;
-  length_agreement: number | null;
-  timestamp_trustworthy: boolean | null;
-  note: string;
+type Project = {
+  production_id: string;
+  scene_id: string;
+  edit_version: string;
+  frames_stored: boolean;
 };
 
-type FrameResult = {
-  role: string;
-  moment: string;
-  reads: number;
-  observations: Array<Record<string, unknown>>;
-  inferred: Inferred;
+type SceneChange = { from: number; to: number; note: string };
+
+type TakeState = {
+  file: File | null;
+  meta: Mp4Metadata | null;
+  headFrame: ExtractedFrame | null;
+  tailFrame: ExtractedFrame | null;
+  duration: number;
+  when: string;
 };
 
-type CompareResult = {
-  latitude: number;
-  longitude: number;
-  model: string;
-  reads_expected: number;
-  verdict: {
-    verdict: "matched" | "suspect" | "unmeasurable";
-    headline: string;
-    detail: string;
-    minutes_apart: number;
-    sun_elevation_change_deg: number;
-    sun_azimuth_change_deg: number;
-    expected_length_ratio: number | null;
-    observed_length_ratio: number | null;
-    ratio_agreement: number | null;
-    camera_heading_change_deg: number | null;
-    detectable_from_minutes: number | null;
-  };
-  frames: FrameResult[];
-};
-
-type GroundDifference = {
-  cell: string;
-  what: string;
-  present_in: "outgoing" | "incoming";
-  seen_in_reads: number;
-  box: { x: number; y: number; width: number; height: number };
-};
-
-type GroundResult = {
-  grid: { columns: number; rows: number };
-  reads: number;
-  reads_expected: number;
-  agreement_needed: number;
-  model: string;
-  differences: GroundDifference[];
+const EMPTY: TakeState = {
+  file: null,
+  meta: null,
+  headFrame: null,
+  tailFrame: null,
+  duration: 0,
+  when: "",
 };
 
 /**
- * Point the tool at two shots of your own and ask whether they cut together.
+ * Bring your own footage, and let the agent investigate it.
  *
- * The order matters and is the whole idea. The first clip is the shot being
- * cut away from, so what counts in it is its *last* moment; the second is the
- * shot being cut to, so what counts is its *first*. Those two moments land
- * next to each other on screen and an audience reads them as one continuous
- * instant, which means the sun in them has to agree.
+ * The demo scene is convincing because there is a database under it: thirty
+ * takes, a hundred thousand ephemeris rows, telemetry. The agent's power is not
+ * that it looks at pictures, it is that it can ask across all of that at once,
+ * and a page that imitated the look of that from a couple of vision calls would
+ * be a pretence.
  *
- * Neither video is uploaded. Both are decoded here in the browser and only the
- * two frames the cut actually joins are sent.
+ * So this builds the real thing. Each clip becomes a take, the frames a cut
+ * would touch become observations, an ephemeris is computed for the window the
+ * files claim, and the order they are put in becomes the cut list. Then the
+ * same agent runs on it, through the same MCP server, and what comes back is
+ * the same console: what it asked, what it dismissed, and what it filed.
  */
-export default function TryYourClip() {
+export default function TryYourClips() {
   const { apiBase, limits } = useLoaderData<typeof loader>();
 
-  const outgoing = useClipSlot(limits);
-  const incoming = useClipSlot(limits);
-
+  const [slots, setSlots] = useState<number[]>([1, 2]);
+  const [takes, setTakes] = useState<Record<number, TakeState>>({});
   const [lat, setLat] = useState("");
   const [lon, setLon] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [result, setResult] = useState<CompareResult | null>(null);
-  const [ground, setGround] = useState<GroundResult | null>(null);
+  const [storeFrames, setStoreFrames] = useState(true);
 
-  // Whichever clip volunteers a position first fills the shared pair. A cut
-  // inside a scene is one place, so asking for it twice would be asking a
-  // person to type the same thing twice.
+  const [stage, setStage] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [project, setProject] = useState<Project | null>(null);
+  const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [findings, setFindings] = useState<Finding[]>([]);
+  const [sceneChanges, setSceneChanges] = useState<SceneChange[]>([]);
+  const [elapsed, setElapsed] = useState(0);
+
+  const ordered = slots
+    .map((id) => takes[id])
+    .filter((take): take is TakeState => !!take?.headFrame && !!take?.tailFrame);
+
+  const missing: string[] = [];
+  if (ordered.length < MIN_TAKES) missing.push(`at least ${MIN_TAKES} clips`);
+  if (ordered.length >= MIN_TAKES && ordered.some((take) => take.when === "")) {
+    missing.push("the time each clip was recorded");
+  }
+  if (lat === "" || lon === "") missing.push("the position where you filmed");
+  const ready = missing.length === 0;
+
+  const analyse = useCallback(async () => {
+    if (!ready) return;
+    setProblem(null);
+    setProject(null);
+    setEvents([]);
+    setFindings([]);
+    setSceneChanges([]);
+
+    const startedAt = Date.now();
+    const ticking = window.setInterval(
+      () => setElapsed(Math.round((Date.now() - startedAt) / 1000)),
+      1000,
+    );
+
+    try {
+      setStage("Checking whether each join is inside one scene");
+      setSceneChanges(await findSceneChanges(apiBase, ordered));
+
+      setStage(`Reading ${ordered.length} clips and writing them into ClickHouse`);
+      const created = await createProject(apiBase, ordered, lat, lon, storeFrames);
+      setProject(created);
+
+      setStage("The agent is investigating");
+      await streamAnalysis(apiBase, created, Number(lat), Number(lon), setEvents);
+
+      setStage("Collecting what it filed");
+      setFindings(await fetchProjectFindings(apiBase, created));
+    } catch (caught) {
+      setProblem(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      window.clearInterval(ticking);
+      setStage(null);
+    }
+  }, [ready, ordered, lat, lon, storeFrames, apiBase]);
+
   const adoptPlace = useCallback((meta: Mp4Metadata) => {
     const { latitude, longitude } = meta;
     if (latitude == null || longitude == null) return;
     setLat((current) => (current === "" ? latitude.toFixed(5) : current));
     setLon((current) => (current === "" ? longitude.toFixed(5) : current));
   }, []);
-
-  const runCompare = useCallback(async () => {
-    const from = outgoing.tailFrame;
-    const to = incoming.headFrame;
-    if (!from || !to) return;
-
-    setBusy("Measuring the shadow in each frame and asking the sun");
-
-    try {
-      const body = new FormData();
-      body.append("outgoing", from.blob, "outgoing.jpg");
-      body.append("incoming", to.blob, "incoming.jpg");
-      body.append("outgoing_recorded_at", new Date(outgoing.when).toISOString());
-      body.append("incoming_recorded_at", new Date(incoming.when).toISOString());
-      body.append("latitude", lat);
-      body.append("longitude", lon);
-      body.append("outgoing_at_seconds", String(from.at));
-      body.append("incoming_at_seconds", String(to.at));
-
-      const response = await fetch(`${apiBase}/api/compare`, { method: "POST", body });
-      if (!response.ok) {
-        const detail = await response.text();
-        throw new Error(`the API said ${response.status}: ${detail.slice(0, 300)}`);
-      }
-      setResult((await response.json()) as CompareResult);
-    } catch (caught) {
-      setProblem(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setBusy(null);
-    }
-  }, [
-    outgoing.tailFrame,
-    outgoing.when,
-    incoming.headFrame,
-    incoming.when,
-    lat,
-    lon,
-    apiBase,
-  ]);
-
-  const runGround = useCallback(async () => {
-    const from = outgoing.tailFrame;
-    const to = incoming.headFrame;
-    if (!from || !to) return;
-
-    setBusy("Laying both frames under one grid and asking what changed");
-
-    try {
-      const body = new FormData();
-      body.append("pair", await composePair(from.blob, to.blob), "pair.jpg");
-      body.append("columns", String(DEFAULT_GRID.columns));
-      body.append("rows", String(DEFAULT_GRID.rows));
-
-      const response = await fetch(`${apiBase}/api/ground`, { method: "POST", body });
-      if (!response.ok) {
-        const detail = await response.text();
-        throw new Error(`the API said ${response.status}: ${detail.slice(0, 300)}`);
-      }
-      setGround((await response.json()) as GroundResult);
-    } catch (caught) {
-      setProblem(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setBusy(null);
-    }
-  }, [outgoing.tailFrame, incoming.headFrame, apiBase]);
-
-  const bothLoaded = !!outgoing.tailFrame && !!incoming.headFrame;
-
-  // A disabled button that will not say why is a dead end, and this page had
-  // one: two clips would load, both checks sat greyed out, and nothing on
-  // screen named the thing that was missing.
-  const missing: string[] = [];
-  if (!bothLoaded) missing.push("both clips");
-  if (bothLoaded && (outgoing.when === "" || incoming.when === "")) {
-    missing.push("the time each clip was recorded");
-  }
-  if (lat === "" || lon === "") missing.push("the position where you filmed");
-
-  const canCheckLight = bothLoaded && missing.length === 0;
-
-  /**
-   * One button, because the question a person has is one question: do these
-   * two shots cut together?
-   *
-   * That it is answered by two independent checks is true and worth showing,
-   * but it is not the reader's problem to solve. So this runs whatever it can
-   * and says what it could not. The ground check needs only the frames and
-   * comes back in seconds, so it goes first and its answer appears while the
-   * slower one is still working. The light check needs times and a position,
-   * and when those are missing it is skipped and said to be skipped, rather
-   * than leaving a dead button on screen with no explanation.
-   */
-  const analyze = useCallback(async () => {
-    setProblem(null);
-    setResult(null);
-    setGround(null);
-    await runGround();
-    if (canCheckLight) await runCompare();
-  }, [runGround, runCompare, canCheckLight]);
-
-
-  const working = busy ?? outgoing.busy ?? incoming.busy;
 
   return (
     <div className="shell">
@@ -220,7 +147,7 @@ export default function TryYourClip() {
           <h1 className="wordmark">
             Cine<span>Meridian</span>
           </h1>
-          <p className="tagline">Point it at two shots of your own.</p>
+          <p className="tagline">Bring your own footage.</p>
         </div>
         <div className="scene-line">
           <Link to="/">back to the demo scene</Link>
@@ -230,59 +157,59 @@ export default function TryYourClip() {
       <section className="panel" style={{ marginTop: 24 }}>
         <h2>What this does</h2>
         <p className="hint" style={{ maxWidth: "78ch" }}>
-          Give it the two shots either side of a cut, in the order they would be
-          cut. It takes the <strong>last</strong> moment of the first and the{" "}
-          <strong>first</strong> moment of the second, because those are the two
-          frames a cut actually joins, and asks whether the sun agrees they
-          belong to the same afternoon. Neither video is uploaded: both are
-          decoded by your own browser, and only those two frames are sent.
+          Add your clips in the order they would be cut. Each becomes a take in
+          ClickHouse, along with the measurements read from the two frames a cut
+          actually touches and an ephemeris computed for the time and place your
+          files claim. Then the same agent that reviews the demo scene is pointed
+          at it, through the same MCP server, and you watch it work.
         </p>
         <p className="hint" style={{ maxWidth: "78ch", marginBottom: 0 }}>
-          Daylight and outdoors, with something in frame casting a shadow. No
-          shadow means nothing to work from, and it will say so rather than
-          guess. Up to {(limits.maxBytes / 1024 / 1024).toFixed(0)} MB and{" "}
-          {limits.maxSeconds} seconds each.
+          Between {MIN_TAKES} and {MAX_TAKES} clips, up to{" "}
+          {(limits.maxBytes / 1024 / 1024).toFixed(0)} MB and {limits.maxSeconds}{" "}
+          seconds each. Daylight and outdoors, with something casting a shadow.
+          The clips themselves are never uploaded: your browser decodes them and
+          sends two frames per take.
         </p>
       </section>
 
-      <div className="clip-pair">
-        <ClipCard
-          slot={outgoing}
-          onMeta={adoptPlace}
-          title="Shot A, cut away from"
-          uses="tail"
-          usesLabel="Its last moment is the one the cut uses."
-        />
-        <ClipCard
-          slot={incoming}
-          onMeta={adoptPlace}
-          title="Shot B, cut to"
-          uses="head"
-          usesLabel="Its first moment is the one the cut uses."
-        />
+      <div className="take-list">
+        {slots.map((id, index) => (
+          <TakeCard
+            key={id}
+            position={index + 1}
+            limits={limits}
+            state={takes[id]}
+            onChange={(next) => setTakes((current) => ({ ...current, [id]: next }))}
+            onPlace={adoptPlace}
+            onRemove={
+              slots.length > MIN_TAKES
+                ? () => setSlots((current) => current.filter((slot) => slot !== id))
+                : undefined
+            }
+          />
+        ))}
       </div>
 
-      {bothLoaded ? (
-        <section className="panel act">
-          <div>
-            <h2 style={{ marginBottom: 6 }}>Does this cut hold?</h2>
-            <p className="hint" style={{ margin: 0, maxWidth: "70ch" }}>
-              {canCheckLight
-                ? "Two independent checks: what the sun says about when these were filmed, and what changed on the ground between them. Around a minute."
-                : `The ground check runs on the frames alone. The light check will be skipped, because it still needs ${joinNicely(missing)} and the sun's angle cannot be computed without it.`}
-            </p>
-          </div>
-          <button type="button" onClick={analyze} disabled={!!working}>
-            {working ? "Analysing…" : "Analyse this cut"}
-          </button>
-        </section>
-      ) : null}
+      {slots.length < MAX_TAKES ? (
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => setSlots((current) => [...current, Math.max(...current) + 1])}
+        >
+          Add a take
+        </button>
+      ) : (
+        <p className="hint">
+          {MAX_TAKES} is the ceiling, and it is a quota rather than a rule: every
+          take costs two vision calls before the agent has started.
+        </p>
+      )}
 
       <section className="panel">
         <h2>Where this was filmed</h2>
         <p className="hint">
-          One place for both shots, which is what a cut inside a scene means.
-          Filled in from either file if it carried a position.
+          One place for the whole scene, which is what a scene means. Filled in
+          from any clip that carried a position.
         </p>
 
         <div className="form-row">
@@ -306,148 +233,195 @@ export default function TryYourClip() {
               onChange={(event) => setLon(event.target.value)}
             />
           </label>
-          {bothLoaded && !canCheckLight ? (
-            <span className="hint" style={{ margin: 0, alignSelf: "center" }}>
-              needed for the light check, which is skipped without it
-            </span>
-          ) : null}
         </div>
 
-        <p className="hint" style={{ marginTop: 14, marginBottom: 0 }}>
-          The position is asked for rather than worked out. Recovering one from
-          shadows is real celestial navigation, but the shadow length this reads
-          carries about forty percent error, which puts a position out by
-          hundreds of kilometres. Enough to sanity check a location, nowhere near
-          enough to find one, and it does not pretend otherwise.
-        </p>
+        <label className="choice">
+          <input
+            type="checkbox"
+            checked={storeFrames}
+            onChange={(event) => setStoreFrames(event.target.checked)}
+          />
+          <span>
+            <b>Let the agent look at the frames</b>
+            <em>
+              Two frames per take are kept for 24 hours, then deleted
+              automatically. Without them the agent can read your measurements
+              but cannot see the pictures, and it says so in its own report: the
+              visual adjudication has nothing to point at. Either way the clips
+              themselves are never uploaded.
+            </em>
+          </span>
+        </label>
       </section>
 
-      {working ? (
+      {ordered.length >= MIN_TAKES ? (
+        <section className="panel act">
+          <div>
+            <h2 style={{ marginBottom: 6 }}>
+              {ordered.length} takes, {ordered.length - 1}{" "}
+              {ordered.length === 2 ? "join" : "joins"}
+            </h2>
+            <p className="hint" style={{ margin: 0, maxWidth: "70ch" }}>
+              {ready
+                ? "Writes the project, then runs the agent over it. Four to six minutes, and every step is shown."
+                : `Still needs ${joinNicely(missing)}.`}
+            </p>
+          </div>
+          <button type="button" onClick={analyse} disabled={!ready || !!stage}>
+            {stage ? "Analysing…" : "Analyse this cut"}
+          </button>
+        </section>
+      ) : null}
+
+      {stage ? (
         <p className="empty">
           <span className="pulse" aria-hidden="true" />
-          {working}…
+          {stage}…<span className="elapsed">{elapsed}s</span>
         </p>
       ) : null}
       {problem ? <p className="banner">{problem}</p> : null}
 
-      <section className="panel">
-        <h2>What changed on the ground</h2>
-        <p className="hint" style={{ maxWidth: "78ch" }}>
-          A separate question, asked separately. The sun says when a shot was
-          filmed and will not be argued with; this says what is lying on the
-          ground, and is a judgement. It needs no times and no position, only the
-          two frames, so it works on footage that carries no metadata at all.
-        </p>
-        <div className="form-row">
-          <span className="hint" style={{ margin: 0 }}>
-            Both frames are laid side by side under one {DEFAULT_GRID.columns} by{" "}
-            {DEFAULT_GRID.rows} grid and read {3} times. A cell is reported only
-            if more than one reading saw it.
-          </span>
-        </div>
+      {sceneChanges.length > 0 ? (
+        <section className="panel">
+          <h2>Joins that are scene changes</h2>
+          <p className="hint">
+            Continuity is a rule about a scene, so these are not faults and were
+            not treated as any. A beach followed by a street disagrees about
+            everything, and all of it is intended.
+          </p>
+          {sceneChanges.map((change) => (
+            <div className="verdict" key={`${change.from}-${change.to}`}>
+              <div>
+                <b>
+                  Take {change.from} to take {change.to}
+                </b>
+                <p>{change.note || "These two frames are not the same place."}</p>
+              </div>
+            </div>
+          ))}
+        </section>
+      ) : null}
 
-        {ground ? (
-          <Ground
-            result={ground}
-            outgoing={outgoing.tailFrame?.dataUrl ?? null}
-            incoming={incoming.headFrame?.dataUrl ?? null}
+      {project ? (
+        <section className="panel">
+          <h2>Your project</h2>
+          <p className="hint" style={{ marginBottom: 12 }}>
+            Written into the same tables the demo scene lives in, under its own
+            production, so nothing of yours mixes with anything of ours.
+          </p>
+          <dl className="facts">
+            <div className="fact">
+              <dt>Production</dt>
+              <dd>{project.production_id}</dd>
+            </div>
+            <div className="fact">
+              <dt>Cut version</dt>
+              <dd>{project.edit_version}</dd>
+            </div>
+            <div className="fact">
+              <dt>Frames kept</dt>
+              <dd>{project.frames_stored ? "yes, for 24 hours" : "no"}</dd>
+            </div>
+          </dl>
+        </section>
+      ) : null}
+
+      {events.length > 0 ? (
+        <AgentTimeline events={events} running={stage === "The agent is investigating"} elapsed={elapsed} />
+      ) : null}
+
+      {findings.length > 0 ? (
+        <section className="panel">
+          <h2>What it filed</h2>
+          <FindingsMap
+            findings={findings}
+            selectedId={null}
+            focusTakeId={null}
+            onSelect={() => undefined}
+            onClearFocus={() => undefined}
           />
-        ) : null}
-      </section>
-
-      {result ? <Verdict result={result} /> : null}
+        </section>
+      ) : null}
 
       <footer className="disclosure">
-        <strong>Where your footage goes.</strong> Nowhere. Both clips are decoded
-        by your own browser and the files themselves are never sent. Two JPEG
-        frames are uploaded so Gemini can measure the shadows in them. Sun and
-        moon positions are computed with the NOAA solar position algorithm and
-        are real astronomy.
+        <strong>Where your footage goes.</strong> The clips are decoded by your
+        own browser and never uploaded. Two frames per take are sent so Gemini
+        can measure them, and kept for 24 hours only if you asked for that above.
+        Sun and moon positions are computed with the NOAA solar position
+        algorithm and are real astronomy.
       </footer>
     </div>
   );
 }
 
-/** Everything one clip slot has to hold, so both of them behave alike. */
-function useClipSlot(limits: typeof DEFAULT_LIMITS) {
-  const [file, setFile] = useState<File | null>(null);
-  const [meta, setMeta] = useState<Mp4Metadata | null>(null);
-  const [frames, setFrames] = useState<ExtractedFrame[]>([]);
-  const [when, setWhen] = useState("");
+function TakeCard({
+  position,
+  limits,
+  state,
+  onChange,
+  onRemove,
+  onPlace,
+}: {
+  position: number;
+  limits: typeof DEFAULT_LIMITS;
+  state: TakeState | undefined;
+  onChange: (next: TakeState) => void;
+  onRemove?: () => void;
+  onPlace: (meta: Mp4Metadata) => void;
+}) {
+  const current = state ?? EMPTY;
+  const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
   const choose = useCallback(
-    async (chosen: File, onMeta: (meta: Mp4Metadata) => void) => {
+    async (file: File) => {
       setProblem(null);
-      setFrames([]);
-      setFile(chosen);
-
       try {
         setBusy("Reading what the file already knows");
-        const parsed = await readMp4Metadata(chosen);
-        setMeta(parsed);
-        if (parsed.recordedAt) setWhen(toLocalInput(parsed.recordedAt));
-        onMeta(parsed);
+        const meta = await readMp4Metadata(file);
+        onPlace(meta);
 
-        setBusy("Decoding and lifting the frames that matter");
-        const extracted = await extractHeadAndTail(chosen, {
+        setBusy("Decoding and lifting the frames a cut would touch");
+        const extracted = await extractHeadAndTail(file, {
           limits,
           onProgress: (done, total) => setBusy(`Lifting frames, ${done} of ${total}`),
         });
-        setFrames(extracted.frames);
+
+        onChange({
+          file,
+          meta,
+          headFrame: extracted.frames.find((frame) => frame.role === "head") ?? null,
+          tailFrame:
+            [...extracted.frames].reverse().find((frame) => frame.role === "tail") ?? null,
+          duration: extracted.durationSeconds,
+          when: meta.recordedAt ? toLocalInput(meta.recordedAt) : "",
+        });
       } catch (caught) {
-        if (caught instanceof ClipTooLarge || caught instanceof ClipTooLong) {
-          setProblem(caught.message);
-        } else {
-          setProblem(
-            caught instanceof Error ? caught.message : "This file could not be read.",
-          );
-        }
-        setFile(null);
+        setProblem(
+          caught instanceof ClipTooLarge || caught instanceof ClipTooLong
+            ? caught.message
+            : caught instanceof Error
+              ? caught.message
+              : "This file could not be read.",
+        );
       } finally {
         setBusy(null);
       }
     },
-    [limits],
+    [limits, onChange, onPlace],
   );
 
-  return {
-    file,
-    meta,
-    frames,
-    when,
-    setWhen,
-    busy,
-    problem,
-    choose,
-    headFrame: frames.find((frame) => frame.role === "head") ?? null,
-    tailFrame: [...frames].reverse().find((frame) => frame.role === "tail") ?? null,
-  };
-}
-
-type Slot = ReturnType<typeof useClipSlot>;
-
-function ClipCard({
-  slot,
-  onMeta,
-  title,
-  uses,
-  usesLabel,
-}: {
-  slot: Slot;
-  onMeta: (meta: Mp4Metadata) => void;
-  title: string;
-  uses: "head" | "tail";
-  usesLabel: string;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const chosenFrame = uses === "head" ? slot.headFrame : slot.tailFrame;
-
   return (
-    <section className="panel">
-      <h2>{title}</h2>
-      <p className="hint">{usesLabel}</p>
+    <section className="panel take-card">
+      <div className="take-head">
+        <h2>Take {position}</h2>
+        {onRemove ? (
+          <button type="button" className="ghost small" onClick={onRemove}>
+            Remove
+          </button>
+        ) : null}
+      </div>
 
       <div className="drop">
         <input
@@ -456,70 +430,59 @@ function ClipCard({
           accept="video/mp4,video/quicktime,video/webm"
           onChange={(event) => {
             const picked = event.target.files?.[0];
-            if (picked) void slot.choose(picked, onMeta);
+            if (picked) void choose(picked);
           }}
           hidden
         />
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          disabled={!!slot.busy}
-        >
-          {slot.file ? "Choose a different clip" : "Choose a clip"}
+        <button type="button" onClick={() => inputRef.current?.click()} disabled={!!busy}>
+          {current.file ? "Choose a different clip" : "Choose a clip"}
         </button>
-        {slot.file ? (
+        {current.file ? (
           <span className="hint" style={{ margin: 0 }}>
-            {slot.file.name}
+            {current.file.name}
           </span>
         ) : null}
       </div>
 
-      {slot.busy ? (
+      {busy ? (
         <p className="empty">
           <span className="pulse" aria-hidden="true" />
-          {slot.busy}…
+          {busy}…
         </p>
       ) : null}
-      {slot.problem ? <p className="banner">{slot.problem}</p> : null}
+      {problem ? <p className="banner">{problem}</p> : null}
 
-      {chosenFrame ? (
+      {current.headFrame && current.tailFrame ? (
         <>
-          <figure style={{ marginTop: 18 }}>
-            <img src={chosenFrame.dataUrl} alt={`${uses} frame`} />
-            <figcaption>
-              <b>{uses === "head" ? "First frame" : "Last frame"}</b>
-              {chosenFrame.at.toFixed(2)}s
-              <span>this is the frame that gets read</span>
-            </figcaption>
-          </figure>
-
-          <div className="known" style={{ marginTop: 18 }}>
-            <Known
-              label="Recorded at"
-              value={slot.meta?.recordedAt ? slot.meta.recordedAt.toUTCString() : null}
-              missing="not in this file"
-            />
-            <Known
-              label="Location"
-              value={
-                slot.meta?.latitude != null
-                  ? `${slot.meta.latitude.toFixed(4)}, ${slot.meta.longitude?.toFixed(4)}`
-                  : null
-              }
-              missing="not in this file"
-            />
-            <Known label="Camera heading" value={null} missing="never in any file" />
+          <div className="clip-pair" style={{ marginTop: 16 }}>
+            {([current.headFrame, current.tailFrame] as const).map((frame, index) => (
+              <figure key={index}>
+                <img src={frame.dataUrl} alt={`${frame.role} frame`} />
+                <figcaption>
+                  <b>{index === 0 ? "First frame" : "Last frame"}</b>
+                  {frame.at.toFixed(2)}s
+                  <span>
+                    {index === 0
+                      ? "what the previous cut lands on"
+                      : "what the next cut leaves from"}
+                  </span>
+                </figcaption>
+              </figure>
+            ))}
           </div>
 
           <label
             className="field"
             style={{ flexDirection: "column", alignItems: "flex-start" }}
           >
-            <span>Recorded at (your local time)</span>
+            <span>
+              Recorded at (your local time)
+              {current.meta?.recordedAt ? ", read from the file" : ", not in this file"}
+            </span>
             <input
               type="datetime-local"
-              value={slot.when}
-              onChange={(event) => slot.setWhen(event.target.value)}
+              value={current.when}
+              onChange={(event) => onChange({ ...current, when: event.target.value })}
             />
           </label>
         </>
@@ -528,251 +491,227 @@ function ClipCard({
   );
 }
 
-function Known({
-  label,
-  value,
-  missing,
-}: {
-  label: string;
-  value: string | null;
-  missing: string;
-}) {
-  return (
-    <div className="known-item">
-      <dt>{label}</dt>
-      <dd className={value ? "known-yes" : "known-no"}>{value ?? missing}</dd>
-    </div>
-  );
+/**
+ * Which joins are scene changes rather than cuts inside a scene.
+ *
+ * Asked before anything expensive happens, because continuity is a rule about a
+ * scene: two shots in different places disagree about everything and none of it
+ * is a fault. One reading per join, since whether two frames are the same place
+ * is a far easier question than counting marks on sand, and five joins read
+ * three times each would be fifteen calls before the work started.
+ */
+async function findSceneChanges(base: string, takes: TakeState[]): Promise<SceneChange[]> {
+  const changes: SceneChange[] = [];
+
+  for (let index = 0; index + 1 < takes.length; index += 1) {
+    const outgoing = takes[index].tailFrame;
+    const incoming = takes[index + 1].headFrame;
+    if (!outgoing || !incoming) continue;
+
+    const body = new FormData();
+    body.append("pair", await composePair(outgoing.blob, incoming.blob), "pair.jpg");
+    body.append("columns", String(DEFAULT_GRID.columns));
+    body.append("rows", String(DEFAULT_GRID.rows));
+    body.append("reads", "1");
+
+    // A join that could not be checked is not a join that failed. Carrying on
+    // is the cheaper mistake: refusing an analysis somebody asked for leaves
+    // them nothing, while a scene change wrongly analysed produces findings
+    // they can dismiss by looking.
+    const response = await fetch(`${base}/api/ground`, { method: "POST", body });
+    if (!response.ok) continue;
+
+    const answer = (await response.json()) as { same_place: boolean; place_note: string };
+    if (!answer.same_place) {
+      changes.push({ from: index + 1, to: index + 2, note: answer.place_note });
+    }
+  }
+  return changes;
 }
 
-function Verdict({ result }: { result: CompareResult }) {
-  const verdict = result.verdict;
-  const short = result.frames.find((frame) => frame.reads < result.reads_expected);
-  const tone =
-    verdict.verdict === "matched"
-      ? "verdict verdict-good"
-      : verdict.verdict === "suspect"
-        ? "verdict verdict-alarm"
-        : "verdict";
+async function createProject(
+  base: string,
+  takes: TakeState[],
+  lat: string,
+  lon: string,
+  storeFrames: boolean,
+): Promise<Project> {
+  const form = new FormData();
+  form.append("latitude", lat);
+  form.append("longitude", lon);
+  form.append("store_frames", String(storeFrames));
 
-  return (
-    <section className="panel">
-      <h2>What the sun says about this cut</h2>
-      <p className="hint">
-        Shadows measured by {result.model} on the two frames, reconciled against
-        the computed position of the sun at {result.latitude}, {result.longitude}.
-      </p>
+  takes.forEach((take, index) => {
+    const n = index + 1;
+    form.append(`take_${n}_head`, take.headFrame!.blob, `t${n}_head.jpg`);
+    form.append(`take_${n}_tail`, take.tailFrame!.blob, `t${n}_tail.jpg`);
+    form.append(`take_${n}_recorded_at`, new Date(take.when).toISOString());
+    form.append(`take_${n}_duration`, String(take.duration));
+  });
 
-      <div className={tone}>
-        {verdict.verdict === "matched" ? <SunIcon size={20} /> : null}
-        <div>
-          <b>{verdict.headline}</b>
-          <p>{verdict.detail}</p>
-        </div>
-      </div>
+  const response = await fetch(`${base}/api/project`, { method: "POST", body: form });
+  if (!response.ok) {
+    throw new Error(`the API said ${response.status}: ${(await response.text()).slice(0, 300)}`);
+  }
+  return (await response.json()) as Project;
+}
 
-      {short ? (
-        <div className="verdict">
-          <div>
-            <b>Read fewer times than it should have been</b>
-            <p>
-              Each frame is measured {result.reads_expected} times and the middle
-              answer kept, because a single reading of one frame varies enough to
-              change the verdict.{" "}
-              {short.role === "outgoing" ? "The outgoing" : "The incoming"} frame
-              managed {short.reads} of {result.reads_expected}, so the answer above
-              rests on less evidence than it normally would. Running it again is
-              worth more here than usual.
-            </p>
-          </div>
-        </div>
-      ) : null}
-
-      {verdict.camera_heading_change_deg != null ? (
-        <div className="verdict">
-          <div>
-            <b>
-              The camera moved{" "}
-              {Math.abs(verdict.camera_heading_change_deg).toFixed(0)}° between
-              these shots
-            </b>
-            <p>
-              Recovered from the shadows rather than from either file, since no
-              file carries a heading. This is reported and not judged: a camera
-              is supposed to move between shots, and that movement is coverage,
-              not a continuity error.
-            </p>
-          </div>
-        </div>
-      ) : null}
-
-      <dl className="facts" style={{ marginTop: 22 }}>
-        <div className="fact">
-          <dt>What the files claim</dt>
-          <dd>{verdict.minutes_apart.toFixed(1)} minutes between these two moments</dd>
-        </div>
-        <div className="fact">
-          <dt>How far this check can see</dt>
-          <dd>
-            {verdict.detectable_from_minutes != null
-              ? `a timestamp would have to be more than ${verdict.detectable_from_minutes.toFixed(0)} minutes wrong before these shadows could show it`
-              : "nothing, at this time of day: shadow length barely moves, so no timing error would show"}
-          </dd>
-        </div>
-        <div className="fact">
-          <dt>What the sun did in that time</dt>
-          <dd>
-            elevation {verdict.sun_elevation_change_deg > 0 ? "rose" : "fell"}{" "}
-            {Math.abs(verdict.sun_elevation_change_deg).toFixed(2)}°, bearing moved{" "}
-            {Math.abs(verdict.sun_azimuth_change_deg).toFixed(2)}°
-          </dd>
-        </div>
-        {verdict.expected_length_ratio != null ? (
-          <div className="fact">
-            <dt>Shadow length across the cut</dt>
-            <dd>
-              the sun requires a factor of{" "}
-              {verdict.expected_length_ratio.toFixed(2)}
-              {verdict.observed_length_ratio != null
-                ? `, the frames show ${verdict.observed_length_ratio.toFixed(2)}`
-                : ", and nothing measurable came back from the frames"}
-            </dd>
-          </div>
-        ) : null}
-        {result.frames.map((frame) => (
-          <div className="fact" key={frame.role}>
-            <dt>
-              {frame.role} frame, {frame.moment} UTC
-            </dt>
-            <dd>
-              sun {frame.inferred.sun_elevation_deg.toFixed(1)}° up,{" "}
-              {frame.inferred.sun_azimuth_deg.toFixed(1)}° round · shadow should be{" "}
-              {frame.inferred.expected_shadow_length_ratio.toFixed(2)}× height
-              {frame.inferred.observed_shadow_length_ratio != null
-                ? `, measured ${frame.inferred.observed_shadow_length_ratio.toFixed(2)}×`
-                : ", not measurable in this frame"}
-            </dd>
-          </div>
-        ))}
-      </dl>
-
-      <p className="hint" style={{ marginTop: 18, marginBottom: 0 }}>
-        The comparison is a ratio on purpose. Measured on its own, each of these
-        shadows is read about forty percent short; measured against each other,
-        that error sits in both halves of the fraction and divides out. It is the
-        same reason the demo scene compares takes with takes rather than against
-        absolute truth.
-      </p>
-    </section>
+async function fetchProjectFindings(base: string, project: Project): Promise<Finding[]> {
+  const response = await fetch(
+    `${base}/api/findings?edit_version=${encodeURIComponent(
+      project.edit_version,
+    )}&scene_id=${encodeURIComponent(project.scene_id)}`,
   );
+  if (!response.ok) return [];
+
+  const body = (await response.json()) as {
+    result?: { rows?: unknown[][]; columns?: string[] };
+  };
+  const result = body.result;
+  if (!result?.rows || !result?.columns) return [];
+
+  return result.rows.map((row) => {
+    const finding: Record<string, unknown> = {};
+    result.columns!.forEach((column, index) => {
+      finding[column.split(".").pop() ?? column] = row[index];
+    });
+    return finding as unknown as Finding;
+  });
+}
+
+/** Run the agent, pushing each step into the timeline as it arrives. */
+async function streamAnalysis(
+  base: string,
+  project: Project,
+  latitude: number,
+  longitude: number,
+  onEvent: (update: (current: TimelineEvent[]) => TimelineEvent[]) => void,
+): Promise<void> {
+  const response = await fetch(`${base}/api/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      edit_version: project.edit_version,
+      scene_id: project.scene_id,
+      production_id: project.production_id,
+      latitude,
+      longitude,
+    }),
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`the agent could not be reached: ${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // The server separates frames with CRLF CRLF. Splitting on "\n\n" alone
+    // parses nothing at all, silently, which is exactly what happened once.
+    const frames = buffer.split(/\r?\n\r?\n/);
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      const event = parseFrame(frame);
+      if (event) onEvent((current) => absorb(current, event));
+    }
+  }
+}
+
+function parseFrame(frame: string): TimelineEvent | null {
+  let kind = "";
+  let data = "";
+  for (const line of frame.split(/\r?\n/)) {
+    if (line.startsWith("event:")) kind = line.slice(6).trim();
+    if (line.startsWith("data:")) data += line.slice(5).trim();
+  }
+  if (!kind || !data) return null;
+
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = JSON.parse(data);
+  } catch {
+    return null;
+  }
+
+  const at = Number(payload.elapsed_ms ?? 0);
+  switch (kind) {
+    case "tool_call": {
+      const args = (payload.args ?? {}) as Record<string, string>;
+      const name = String(payload.name ?? "");
+      return {
+        kind: "tool_call",
+        at,
+        name,
+        text: describeCall(name, args),
+        detail: trim(args.query ?? Object.values(args).join(" · "), 600),
+      };
+    }
+    case "tool_result":
+      return {
+        kind: "tool_result",
+        at,
+        name: String(payload.name ?? ""),
+        ok: payload.ok !== false,
+        text: describeOutcome(
+          payload.ok !== false,
+          typeof payload.rows === "number" ? payload.rows : null,
+          String(payload.detail ?? ""),
+        ),
+      };
+    case "reasoning":
+      return { kind: "reasoning", at, text: String(payload.text ?? "") };
+    case "error":
+      return { kind: "error", at, text: String(payload.detail ?? "") };
+    case "started":
+      return { kind: "started", at, text: "reviewing your cut" };
+    case "done":
+      return { kind: "done", at, text: `finished in ${(at / 1000).toFixed(1)}s` };
+    default:
+      return null;
+  }
+}
+
+/** Fold a result into the call it answers, so one action is one line. */
+function absorb(events: TimelineEvent[], incoming: TimelineEvent): TimelineEvent[] {
+  if (incoming.kind !== "tool_result") return [...events, incoming];
+
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const candidate = events[index];
+    if (
+      candidate.kind === "tool_call" &&
+      candidate.name === incoming.name &&
+      candidate.ok === undefined
+    ) {
+      const merged = [...events];
+      merged[index] = {
+        ...candidate,
+        ok: incoming.ok,
+        outcome: incoming.text,
+        took: incoming.at - candidate.at,
+      };
+      return merged;
+    }
+  }
+  return [...events, incoming];
+}
+
+function joinNicely(parts: string[]): string {
+  if (parts.length === 0) return "nothing";
+  if (parts.length === 1) return parts[0];
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+function trim(text: string, limit: number): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > limit ? `${flat.slice(0, limit)}…` : flat;
 }
 
 /** `datetime-local` wants the browser's own timezone, without a suffix. */
 function toLocalInput(date: Date): string {
   const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-}
-
-/**
- * Where on the frame the difference is, drawn rather than described.
- *
- * "A dark smudge in C3" asks a person to find the cell, then find the mark
- * inside it. A box drawn over the frame asks them to look. The box comes back
- * in fractions of the frame, so it lands correctly whatever size the image is
- * displayed at, which is why it is positioned in percentages rather than pixels.
- */
-function Ground({
-  result,
-  outgoing,
-  incoming,
-}: {
-  result: GroundResult;
-  outgoing: string | null;
-  incoming: string | null;
-}) {
-  const short = result.reads < result.reads_expected;
-
-  if (result.differences.length === 0) {
-    return (
-      <>
-        <div className="verdict">
-          <div>
-            <b>Nothing on the ground disagrees</b>
-            <p>
-              Read {result.reads} times under a {result.grid.columns} by{" "}
-              {result.grid.rows} grid, no cell was called different by more than
-              one reading. That is not a guarantee that nothing changed: small
-              marks and anything outside the frame are beyond this, and it is
-              looking at the ground only, not at the people or the sky.
-            </p>
-          </div>
-        </div>
-        {short ? <ShortRead result={result} /> : null}
-      </>
-    );
-  }
-
-  return (
-    <>
-      {short ? <ShortRead result={result} /> : null}
-      {result.differences.map((difference) => {
-        const frame = difference.present_in === "incoming" ? incoming : outgoing;
-        return (
-          <div key={`${difference.cell}-${difference.present_in}`} className="ground-find">
-            <div className="ground-shot">
-              {frame ? (
-                <>
-                  <img src={frame} alt={`${difference.present_in} frame`} />
-                  <span
-                    className="ground-box"
-                    style={{
-                      left: `${difference.box.x * 100}%`,
-                      top: `${difference.box.y * 100}%`,
-                      width: `${difference.box.width * 100}%`,
-                      height: `${difference.box.height * 100}%`,
-                    }}
-                  />
-                </>
-              ) : null}
-            </div>
-            <div>
-              <b>
-                {difference.cell} · present in the {difference.present_in} frame
-              </b>
-              <p>{difference.what}</p>
-              <p className="hint" style={{ marginBottom: 0 }}>
-                Seen by {difference.seen_in_reads} of {result.reads} readings.
-                Measured by {result.model} on both frames at once, which is why
-                it is a comparison rather than two measurements subtracted from
-                each other.
-              </p>
-            </div>
-          </div>
-        );
-      })}
-    </>
-  );
-}
-
-function ShortRead({ result }: { result: GroundResult }) {
-  return (
-    <div className="verdict">
-      <div>
-        <b>Read fewer times than it should have been</b>
-        <p>
-          The pair was read {result.reads} times of {result.reads_expected}, so
-          the agreement of {result.agreement_needed} readings that a finding
-          needs rested on less evidence than usual. Running it again is worth
-          more here than it normally would be.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/** "a and b", or "a, b and c". Lists read badly with a trailing comma. */
-function joinNicely(parts: string[]): string {
-  if (parts.length === 0) return "nothing";
-  if (parts.length === 1) return parts[0];
-  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 }

@@ -60,6 +60,12 @@ class TakeInput:
     head_observations: list[dict[str, Any]]
     tail_observations: list[dict[str, Any]]
 
+    #: Where the frames were kept, if the visitor chose to keep them. Empty
+    #: when they did not, which the agent reads as "there is nothing to look
+    #: at" rather than following a path to nowhere.
+    head_uri: str = ""
+    tail_uri: str = ""
+
 
 @dataclass(frozen=True)
 class Project:
@@ -208,12 +214,12 @@ def _observations_insert(project: Project, takes: list[TakeInput]) -> str:
     rows = []
     for take in takes:
         ended = take.recorded_at + timedelta(seconds=max(take.duration_seconds, 1.0))
-        for beat, moment, observations in (
-            (HEAD_BEAT, take.recorded_at, take.head_observations),
-            (TAIL_BEAT, ended, take.tail_observations),
+        for beat, moment, observations, uri in (
+            (HEAD_BEAT, take.recorded_at, take.head_observations, take.head_uri),
+            (TAIL_BEAT, ended, take.tail_observations, take.tail_uri),
         ):
             for observation in observations:
-                rows.append(_observation_row(project, take, beat, moment, observation))
+                rows.append(_observation_row(project, take, beat, moment, uri, observation))
 
     if not rows:
         # An INSERT with no rows is a syntax error, and a project whose clips
@@ -233,6 +239,7 @@ def _observation_row(
     take: TakeInput,
     beat: int,
     moment: datetime,
+    frame_uri: str,
     observation: dict[str, Any],
 ) -> str:
     entity = str(observation.get("entity", ""))[:60]
@@ -251,11 +258,11 @@ def _observation_row(
                 _text(project.scene_id),
                 str(beat),
                 _text(_stamp(moment)),
-                # The frames live in the visitor's browser and were never
-                # uploaded as files, so there is no object to point at. An
-                # empty string says that honestly; a made up gs:// path would
-                # send anyone who followed it nowhere.
-                _text(""),
+                # Empty unless the visitor chose to keep the frames. An empty
+                # string says honestly that there is nothing to look at; a made
+                # up gs:// path would send anyone who followed it nowhere, and
+                # the agent does follow them.
+                _text(frame_uri),
                 _text(entity),
                 _text(attribute),
                 _text(str(observation.get("value", ""))[:200]),

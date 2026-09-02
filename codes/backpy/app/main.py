@@ -822,6 +822,7 @@ async def ground(
     pair: UploadFile = File(...),
     columns: int = Form(4),
     rows: int = Form(3),
+    reads: int = Form(0),
 ) -> dict[str, Any]:
     """What is on the ground in one shot and not the other.
 
@@ -845,7 +846,11 @@ async def ground(
     payload = await _read_frame(pair, "pair")
     settings = get_settings()
 
-    answers = await _read_pair(payload, settings)
+    # A project with six takes has five adjacent pairs, and reading each three
+    # times is fifteen calls on top of the ingest. The gate question, whether
+    # these are the same place at all, is far easier than counting marks on
+    # sand and survives a single reading; the caller says which it needs.
+    answers = await _read_pair(payload, settings, reads or READS_PER_FRAME)
     if not answers:
         raise HTTPException(
             status_code=502,
@@ -863,12 +868,13 @@ async def ground(
         [parse_reading(text, columns, rows) for text in answers] if same_place else []
     )
 
-    differences = agree(readings, columns, rows) if same_place else []
+    needed = 1 if (reads or READS_PER_FRAME) < 2 else AGREEMENT
+    differences = agree(readings, columns, rows, needed) if same_place else []
     return {
         "grid": {"columns": columns, "rows": rows},
         "reads": len(answers),
-        "reads_expected": READS,
-        "agreement_needed": AGREEMENT,
+        "reads_expected": reads or READS_PER_FRAME,
+        "agreement_needed": needed,
         "model": settings.model,
         "same_place": same_place,
         "place_note": place_note,
@@ -891,7 +897,7 @@ async def ground(
     }
 
 
-async def _read_pair(payload: bytes, settings: Any) -> list[str]:
+async def _read_pair(payload: bytes, settings: Any, reads: int) -> list[str]:
     """Ask the same question a few times and keep the answers that came back.
 
     Same shape as the frame reads: sent together, allowed to fail apart, and a
@@ -899,7 +905,7 @@ async def _read_pair(payload: bytes, settings: Any) -> list[str]:
     somebody is told their footage has a continuity error in it, which is not a
     thing to settle on a single opinion.
     """
-    from app.tools.ground import PROMPT, READS
+    from app.tools.ground import PROMPT
     from app.tools.vision import compare_pair
 
     async def read_once(delay: float) -> str:
@@ -911,13 +917,19 @@ async def _read_pair(payload: bytes, settings: Any) -> list[str]:
         )
 
     attempts = await asyncio.gather(
-        *(read_once(index * READ_STAGGER_S) for index in range(READS)),
+        *(read_once(index * READ_STAGGER_S) for index in range(reads)),
         return_exceptions=True,
     )
     readings = [r for r in attempts if not isinstance(r, BaseException)]
-    if len(readings) < READS:
-        logger.warning("the pair was read %s times of %s", len(readings), READS)
+    if len(readings) < reads:
+        logger.warning("the pair was read %s times of %s", len(readings), reads)
     return readings
+
+
+#: Where a visitor's frames live when they choose to keep them, and for how
+#: long the page promises they will.
+PROJECT_FRAME_PREFIX = "projects"
+PROJECT_FRAME_TTL_HOURS = 24
 
 
 @app.post("/api/project")
@@ -925,6 +937,7 @@ async def create_project(
     request: Request,
     latitude: float = Form(...),
     longitude: float = Form(...),
+    store_frames: bool = Form(False),
 ) -> dict[str, Any]:
     """Turn a visitor's clips into a production the agent can investigate.
 
@@ -988,12 +1001,24 @@ async def create_project(
         # That is what the demo scene's own ingest does, and a project of six
         # takes would otherwise be thirty six vision calls against a quota that
         # has already refused six.
+        head_bytes = await _read_frame(head, f"take {index} head")
+        tail_bytes = await _read_frame(tail, f"take {index} tail")
+
         head_observations = await _observe(
-            await _read_frame(head, f"take {index} head"), f"take {index} head", settings, reads=1
+            head_bytes, f"take {index} head", settings, reads=1
         )
         tail_observations = await _observe(
-            await _read_frame(tail, f"take {index} tail"), f"take {index} tail", settings, reads=1
+            tail_bytes, f"take {index} tail", settings, reads=1
         )
+
+        # Only if asked. Without a stored frame the agent has nothing to point
+        # a visual adjudication at, and it says so in its own report; with one,
+        # it can look. That is the real trade behind the checkbox, and it is a
+        # larger one than "would you like to keep this".
+        head_uri = tail_uri = ""
+        if store_frames:
+            head_uri = await _store_frame(head_bytes, project, position, "head", settings)
+            tail_uri = await _store_frame(tail_bytes, project, position, "tail", settings)
 
         takes.append(
             TakeInput(
@@ -1002,6 +1027,8 @@ async def create_project(
                 duration_seconds=duration,
                 head_observations=head_observations,
                 tail_observations=tail_observations,
+                head_uri=head_uri,
+                tail_uri=tail_uri,
             )
         )
 
@@ -1022,10 +1049,36 @@ async def create_project(
             for take in takes
         ],
         "rows_written": written,
+        "frames_stored": store_frames,
         "latitude": latitude,
         "longitude": longitude,
         "model": settings.model,
     }
+
+
+async def _store_frame(
+    payload: bytes, project: Any, position: int, role: str, settings: Any
+) -> str:
+    """Keep one frame, so the agent can look at it rather than only read numbers.
+
+    A failure here is not fatal. The project is still worth analysing without
+    pictures, and losing the whole thing because a bucket write failed would
+    trade something large for something small.
+    """
+    from google.cloud import storage
+
+    name = f"{PROJECT_FRAME_PREFIX}/{project.production_id}/t{position:02d}_{role}.jpg"
+    try:
+        def upload() -> None:
+            client = storage.Client(project=settings.project_id)
+            blob = client.bucket(settings.gcs_asset_bucket).blob(name)
+            blob.upload_from_string(payload, content_type="image/jpeg")
+
+        await asyncio.to_thread(upload)
+    except Exception:  # noqa: BLE001
+        logger.exception("could not store the %s frame of take %s", role, position)
+        return ""
+    return f"gs://{settings.gcs_asset_bucket}/{name}"
 
 
 async def _ingest_tool() -> Any:

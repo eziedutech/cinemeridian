@@ -171,9 +171,17 @@ def parse_reading(text: str, columns: int, rows: int) -> list[dict[str, Any]]:
 
 
 def agree(
-    readings: list[list[dict[str, Any]]], columns: int, rows: int
+    readings: list[list[dict[str, Any]]],
+    columns: int,
+    rows: int,
+    needed: int = AGREEMENT,
 ) -> list[GroundDifference]:
     """Keep the differences that more than one reading saw.
+
+    `needed` is how many must have seen it. Two by default, and the caller may
+    lower it when it only asked for one reading, which the gate does: whether
+    two frames are the same place at all is a far easier question than counting
+    marks on sand, and does not need a vote to be worth believing.
 
     Grouped by cell and side rather than by wording, because the same mark comes
     back as "a dark smudge", "a dark spot" and "a blemish on the sand" and those
@@ -196,7 +204,7 @@ def agree(
 
     agreed = []
     for (cell, side), items in grouped.items():
-        if len(items) < AGREEMENT:
+        if len(items) < needed:
             continue
         first = items[0]
         cell_w = 1.0 / columns

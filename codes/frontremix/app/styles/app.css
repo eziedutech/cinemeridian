@@ -962,6 +962,53 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 .verdict-alarm { border-color: var(--alarm); }
 .verdict-alarm b { color: var(--alarm); }
 
+/* A project is a list of takes, stacked in cut order. Two across on a wide
+   screen so the order still reads left to right, top to bottom. */
+.take-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.take-list > * { min-width: 0; }
+
+.take-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.take-head h2 { margin-bottom: 0; }
+
+button.small { padding: 5px 12px; font-size: 12px; }
+
+/* The one decision on this page that is the visitor's rather than ours, so it
+   is given room to explain itself instead of being a bare label. */
+.choice {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin-top: 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--raised);
+  cursor: pointer;
+}
+
+.choice input { margin-top: 3px; flex: 0 0 auto; }
+.choice b { display: block; font-size: 14px; margin-bottom: 5px; }
+.choice em {
+  font-style: normal;
+  font-size: 13px;
+  color: var(--ink-dim);
+  line-height: 1.65;
+  max-width: 76ch;
+  display: block;
+}
+
 /* The one action. It sits between the clips and the answers, and it is the
    only thing on the page that a person has to decide to press. */
 .act {

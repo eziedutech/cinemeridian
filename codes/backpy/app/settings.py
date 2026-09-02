@@ -183,7 +183,14 @@ def get_settings() -> Settings:
         use_vertexai=os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "true").lower() == "true",
         gcs_asset_bucket=_require("GCS_ASSET_BUCKET"),
         model=os.environ.get("CINEMERIDIAN_MODEL", "gemini-3.7-flash"),
-        gemini_location=os.environ.get("CINEMERIDIAN_GEMINI_LOCATION", "us"),
+        # `global` rather than `us`, and measured rather than assumed. Gemini 3
+        # models carry no per-project rate quota that could be raised: they run
+        # on shared capacity, so which pool you ask is the only lever there is.
+        # Three concurrent reads, two bursts each: `us` lost a whole burst, 0 of
+        # 3, while `global` answered 6 of 6. A single call is slower on global,
+        # about 27 seconds against 15, and that is a bargain against a refusal
+        # that costs up to ninety seconds of backoff before it is retried.
+        gemini_location=os.environ.get("CINEMERIDIAN_GEMINI_LOCATION", "global"),
         clickhouse_host=_require("CLICKHOUSE_HOST"),
         clickhouse_port=os.environ.get("CLICKHOUSE_PORT", "8443"),
         clickhouse_user=os.environ.get("CLICKHOUSE_USER", "default"),

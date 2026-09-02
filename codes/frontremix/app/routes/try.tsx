@@ -180,13 +180,19 @@ export default function TryYourClip() {
     }
   }, [outgoing.tailFrame, incoming.headFrame, apiBase]);
 
-  const ready =
-    !!outgoing.tailFrame &&
-    !!incoming.headFrame &&
-    outgoing.when !== "" &&
-    incoming.when !== "" &&
-    lat !== "" &&
-    lon !== "";
+  const bothLoaded = !!outgoing.tailFrame && !!incoming.headFrame;
+
+  // A disabled button that will not say why is a dead end, and this page had
+  // one: two clips would load, both checks sat greyed out, and nothing on
+  // screen named the thing that was missing.
+  const missing: string[] = [];
+  if (!bothLoaded) missing.push("both clips");
+  if (bothLoaded && (outgoing.when === "" || incoming.when === "")) {
+    missing.push("the time each clip was recorded");
+  }
+  if (lat === "" || lon === "") missing.push("the position where you filmed");
+
+  const ready = bothLoaded && missing.length === 0;
 
   const working = busy ?? outgoing.busy ?? incoming.busy;
 
@@ -239,6 +245,16 @@ export default function TryYourClip() {
         />
       </div>
 
+      {bothLoaded ? (
+        <p className="next-step">
+          <strong>Both clips are in.</strong> Two checks below, and they are
+          independent.{" "}
+          <em>Check the ground</em> is ready now and needs nothing further.{" "}
+          <em>Check the light</em> needs {joinNicely(missing)}, because the sun&apos;s
+          angle cannot be computed without knowing when and where you stood.
+        </p>
+      ) : null}
+
       <section className="panel">
         <h2>Where this was filmed</h2>
         <p className="hint">
@@ -270,6 +286,11 @@ export default function TryYourClip() {
           <button type="button" onClick={compare} disabled={!ready || !!working}>
             {busy ? "Working…" : "Check the light"}
           </button>
+          {!ready && bothLoaded ? (
+            <span className="hint" style={{ margin: 0 }}>
+              still needs {joinNicely(missing)}
+            </span>
+          ) : null}
         </div>
 
         <p className="hint" style={{ marginTop: 14, marginBottom: 0 }}>
@@ -735,4 +756,11 @@ function ShortRead({ result }: { result: GroundResult }) {
       </div>
     </div>
   );
+}
+
+/** "a and b", or "a, b and c". Lists read badly with a trailing comma. */
+function joinNicely(parts: string[]): string {
+  if (parts.length === 0) return "nothing";
+  if (parts.length === 1) return parts[0];
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 }

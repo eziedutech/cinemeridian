@@ -962,6 +962,22 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 .verdict-alarm { border-color: var(--alarm); }
 .verdict-alarm b { color: var(--alarm); }
 
+/* What to do next, said at the moment it becomes possible */
+
+.next-step {
+  margin: 4px 0 16px;
+  padding: 14px 18px;
+  border: 1px solid color-mix(in srgb, var(--sand) 40%, transparent);
+  border-radius: var(--r);
+  background: var(--raised);
+  font-size: 13.5px;
+  color: var(--ink-dim);
+  line-height: 1.65;
+}
+
+.next-step strong { color: var(--ink); }
+.next-step em { font-style: normal; color: var(--sand); }
+
 /* A ground difference, shown where it is rather than named */
 
 .ground-find {

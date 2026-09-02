@@ -576,9 +576,12 @@ FRAME_DEADLINE_S = 45.0
 #: happened.
 READ_TIMEOUT_S = 40.0
 
-#: How far apart the first reads are fired. Three requests landing in the same
-#: instant is itself a good way to earn a rate limit.
-READ_STAGGER_S = 0.6
+#: How far apart the first reads are fired. Three requests landing close
+#: together is itself what earns the rate limit here: measured against the
+#: deployed service, a burst of three returned one or two readings and the
+#: rest 429, while the same three spread out come back whole. The spacing
+#: costs a few seconds and buys the measurement it was asking for.
+READ_STAGGER_S = 4.0
 
 
 async def _observe(payload: bytes, role: str, settings: Any) -> list[dict[str, Any]]:

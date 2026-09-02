@@ -217,6 +217,13 @@ class AnalyzeRequest(BaseModel):
     latitude: float = Field(default=SCENE_LATITUDE, ge=-90, le=90)
     longitude: float = Field(default=SCENE_LONGITUDE, ge=-180, le=180)
 
+    #: Whether to hand the agent its candidates instead of letting it find them.
+    #: A visitor's project always gets them; the demo scene does not, because
+    #: four of five planted errors is a measured claim and changing how the
+    #: agent approaches that scene would invalidate it. This exists so the same
+    #: score can be measured on the fast path before the default moves.
+    precomputed: bool | None = None
+
 
 async def _provenance_for(request: Any) -> str:
     """What is actually known about this project, in the agent's own briefing.
@@ -310,7 +317,12 @@ async def analyze(request: AnalyzeRequest):
     # scene does not, deliberately: it is thirty takes with a scored answer key,
     # and changing how the agent approaches it would invalidate a measured
     # result. That switch happens once the same score has been shown to hold.
-    if request.production_id == PRODUCTION_ID:
+    use_candidates = (
+        request.precomputed
+        if request.precomputed is not None
+        else request.production_id != PRODUCTION_ID
+    )
+    if not use_candidates:
         task = ANALYSIS_TASK.format(
             edit_version=request.edit_version,
             scene_id=request.scene_id,
@@ -347,7 +359,16 @@ async def analyze(request: AnalyzeRequest):
         yield {
             "event": "started",
             "data": json.dumps(
-                {"edit_version": request.edit_version, "scene_id": request.scene_id}
+                {
+                    "edit_version": request.edit_version,
+                    "scene_id": request.scene_id,
+                    # The server's clock, so a caller can ask for the findings
+                    # of this run rather than of every run before it. Analysing
+                    # the same project twice used to show both, and the agent
+                    # would honestly report a count of two while having filed
+                    # one.
+                    "at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                }
             ),
         }
 
@@ -404,7 +425,9 @@ async def analyze(request: AnalyzeRequest):
 
 
 @app.get("/api/findings")
-async def findings(edit_version: str = "v14", scene_id: str = "sc14") -> dict[str, Any]:
+async def findings(
+    edit_version: str = "v14", scene_id: str = "sc14", since: str = ""
+) -> dict[str, Any]:
     """What the agent recorded, for the review queue.
 
     Read through the same MCP tool the agent uses, so there is exactly one path
@@ -426,10 +449,28 @@ async def findings(edit_version: str = "v14", scene_id: str = "sc14") -> dict[st
         "visible_in_cut, human_reviewed "
         "FROM cinemeridian.continuity_findings "
         f"WHERE edit_version = '{edit_version}' AND scene_id = '{scene_id}' "
-        "ORDER BY severity DESC, created_at DESC"
+        + _since_clause(since)
+        + "ORDER BY severity DESC, created_at DESC"
     )
     result = await query_tool.run_async(args={"query": sql}, tool_context=None)
     return {"edit_version": edit_version, "scene_id": scene_id, "result": result}
+
+
+def _since_clause(since: str) -> str:
+    """Narrow the findings to one run, when the caller says which.
+
+    Parsed rather than interpolated: this reaches a query, and the only thing
+    that should be able to arrive here is a timestamp.
+    """
+    if not since:
+        return ""
+    try:
+        moment = datetime.fromisoformat(since.replace("Z", "+00:00"))
+    except ValueError:
+        logger.warning("ignoring an unreadable since value: %r", since)
+        return ""
+    stamp = moment.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    return f"AND created_at >= toDateTime('{stamp}') "
 
 
 #: Frames rendered per take by scripts/composite_variants.py. The first is the

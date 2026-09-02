@@ -155,10 +155,17 @@ export default function TryYourClips() {
       setProject(created);
 
       setStage("The agent is investigating");
-      await streamAnalysis(apiBase, created, Number(lat), Number(lon), setEvents, setReport);
+      const runStartedAt = await streamAnalysis(
+        apiBase,
+        created,
+        lat === "" ? null : Number(lat),
+        lon === "" ? null : Number(lon),
+        setEvents,
+        setReport,
+      );
 
       setStage("Collecting what it filed");
-      setFindings(await fetchProjectFindings(apiBase, created));
+      setFindings(await fetchProjectFindings(apiBase, created, runStartedAt));
     } catch (caught) {
       setProblem(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -770,11 +777,16 @@ async function createProject(
   return (await response.json()) as Project;
 }
 
-async function fetchProjectFindings(base: string, project: Project): Promise<Finding[]> {
+async function fetchProjectFindings(
+  base: string,
+  project: Project,
+  since: string,
+): Promise<Finding[]> {
   const response = await fetch(
     `${base}/api/findings?edit_version=${encodeURIComponent(
       project.edit_version,
-    )}&scene_id=${encodeURIComponent(project.scene_id)}`,
+    )}&scene_id=${encodeURIComponent(project.scene_id)}` +
+      (since ? `&since=${encodeURIComponent(since)}` : ""),
   );
   if (!response.ok) return [];
 
@@ -797,11 +809,11 @@ async function fetchProjectFindings(base: string, project: Project): Promise<Fin
 async function streamAnalysis(
   base: string,
   project: Project,
-  latitude: number,
-  longitude: number,
+  latitude: number | null,
+  longitude: number | null,
   onEvent: (update: (current: TimelineEvent[]) => TimelineEvent[]) => void,
   onReport: (markdown: string) => void,
-): Promise<void> {
+): Promise<string> {
   const response = await fetch(`${base}/api/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -809,8 +821,7 @@ async function streamAnalysis(
       edit_version: project.edit_version,
       scene_id: project.scene_id,
       production_id: project.production_id,
-      latitude,
-      longitude,
+      ...(latitude === null || longitude === null ? {} : { latitude, longitude }),
     }),
   });
   if (!response.ok || !response.body) {
@@ -820,6 +831,9 @@ async function streamAnalysis(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  // The server's own clock, so the findings shown afterwards are this run's
+  // and not every run this project has ever had.
+  let startedAt = "";
 
   for (;;) {
     const { done, value } = await reader.read();
@@ -835,10 +849,12 @@ async function streamAnalysis(
       // The report is the answer, not a line in the log. Filed between
       // "counting the rows" and "reading the review queue" it carried the same
       // weight as the bookkeeping that produced it.
+      if (event.kind === "started" && event.detail) startedAt = event.detail;
       if (event.kind === "reasoning") onReport(event.text);
       else onEvent((current) => absorb(current, event));
     }
   }
+  return startedAt;
 }
 
 function parseFrame(frame: string): TimelineEvent | null {
@@ -887,7 +903,12 @@ function parseFrame(frame: string): TimelineEvent | null {
     case "error":
       return { kind: "error", at, text: String(payload.detail ?? "") };
     case "started":
-      return { kind: "started", at, text: "reviewing your cut" };
+      return {
+        kind: "started",
+        at,
+        text: "reviewing your cut",
+        detail: String(payload.at_utc ?? ""),
+      };
     case "done":
       return { kind: "done", at, text: `finished in ${(at / 1000).toFixed(1)}s` };
     default:

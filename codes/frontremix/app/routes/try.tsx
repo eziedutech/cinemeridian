@@ -133,6 +133,27 @@ export default function TryYourClips() {
     }
   }, [ready, ordered, lat, lon, storeFrames, apiBase]);
 
+  const [placeNote, setPlaceNote] = useState<string | null>(null);
+
+  const useMyPosition = useCallback(() => {
+    if (!navigator.geolocation) {
+      setPlaceNote("This browser will not say where it is.");
+      return;
+    }
+    setPlaceNote("Asking your browser where it is…");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLat(position.coords.latitude.toFixed(5));
+        setLon(position.coords.longitude.toFixed(5));
+        setPlaceNote(
+          "That is where you are now, not where the clip was filmed. Change it if they differ.",
+        );
+      },
+      (error) => setPlaceNote(`Your browser would not say: ${error.message}`),
+      { timeout: 10_000 },
+    );
+  }, []);
+
   const adoptPlace = useCallback((meta: Mp4Metadata) => {
     const { latitude, longitude } = meta;
     if (latitude == null || longitude == null) return;
@@ -193,10 +214,10 @@ export default function TryYourClips() {
       {slots.length < MAX_TAKES ? (
         <button
           type="button"
-          className="ghost"
+          className="add-take"
           onClick={() => setSlots((current) => [...current, Math.max(...current) + 1])}
         >
-          Add a take
+          + Add a take
         </button>
       ) : (
         <p className="hint">
@@ -233,6 +254,32 @@ export default function TryYourClips() {
               onChange={(event) => setLon(event.target.value)}
             />
           </label>
+        </div>
+
+        {/* Offered rather than inferred. A position could be guessed from the
+            picture, and the guess would be confident and wrong; it could be
+            recovered from the shadow, and that is real celestial navigation
+            carrying hundreds of kilometres of error. Neither is worth putting
+            in a field somebody will then trust. What a browser knows about
+            where it is standing is at least a measurement. */}
+        <div className="form-row" style={{ marginTop: 14 }}>
+          <button type="button" className="ghost small" onClick={useMyPosition}>
+            Use where I am now
+          </button>
+          <button
+            type="button"
+            className="ghost small"
+            onClick={() => {
+              setLat("8.75");
+              setLon("-83.5");
+            }}
+          >
+            Use the demo location
+          </button>
+          <span className="hint" style={{ margin: 0, alignSelf: "center" }}>
+            {placeNote ??
+              "Your browser knows where it is standing, which helps if you filmed nearby. The demo location is Costa Rica, for trying the machinery on anything."}
+          </span>
         </div>
 
         <label className="choice">

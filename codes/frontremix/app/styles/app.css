@@ -982,6 +982,29 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 
 .take-head h2 { margin-bottom: 0; }
 
+/* Spaced away from the panel below it, and dashed rather than solid. Sitting
+   flush above a bordered box it read as that box's tab, which is a label, and
+   labels do not invite a click. */
+.add-take {
+  display: block;
+  width: 100%;
+  margin: 16px 0 24px;
+  padding: 14px;
+  background: none;
+  border: 1px dashed var(--line);
+  border-radius: var(--r);
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+.add-take:hover {
+  border-color: var(--sand);
+  color: var(--sand);
+  background: var(--raised);
+}
+
 button.small { padding: 5px 12px; font-size: 12px; }
 
 /* The one decision on this page that is the visitor's rather than ours, so it

@@ -387,11 +387,37 @@ enough.
 ### Bringing your own footage
 
 The demo scene is synthetic so that there can be an answer key. To show the
-method works on footage nobody here has seen, `/try` takes the two shots either
-side of a cut and asks whether the sun agrees they belong together. The first
-clip is the shot being cut away from, so its **last** frame is what counts; the
-second is the shot being cut to, so its **first** frame is. Those are the two
-moments an audience reads as continuous.
+method works on footage nobody here has seen, `/try` lets somebody build a
+production of their own: between two and six clips in the order they would be
+cut, and then the same agent investigates it.
+
+Each clip becomes a take in ClickHouse. The frames a cut actually touches, the
+last of one shot and the first of the next, become observations; an ephemeris
+is computed for the window and place the files claim; the order the clips were
+put in becomes the cut list. Then the agent runs on it through the same MCP
+server and the same console renders what it asked and what it filed. It is not
+a rendering of the demo, it is the demo's machinery on someone else's footage.
+
+Measured against the deployed service, two takes: ingest in 209 seconds, then
+sixteen queries, two visual adjudications and one recorded finding in 349.
+
+The writing is done by a second ClickHouse user holding INSERT on exactly four
+tables. The agent may read everything and write findings; it must never be able
+to write a take or an ephemeris row, because those are the evidence it reasons
+about, and a model that can edit its own evidence is not an auditor.
+
+A gate runs in front of all of it. Continuity is a rule about a scene, so two
+shots in different places are a scene change rather than a fault: those joins
+are named and set aside before anything expensive starts. It takes a majority
+of the readings to stop an analysis and only a tie to continue it, because
+refusing work somebody asked for is the more expensive mistake.
+
+Keeping the frames is the visitor's choice, and the checkbox says what it
+actually buys. Without stored frames the agent reads numbers but cannot see
+pictures, and it said so itself on the first run: `frame_uri` is empty, so the
+visual adjudication had nothing to point at. With them, it looked at the frames
+and adjudicated twice. They are deleted after 24 hours by a lifecycle rule on
+the bucket, not by good intentions.
 
 Neither video is uploaded. The browser parses the MP4 boxes itself for
 `creation_time` and the `©xyz` location atom, decodes the file, and sends two
@@ -483,7 +509,19 @@ One trap worth naming: Gemini 3 models are served from the `global` endpoint
 and the `us` and `eu` multi-regions, **not** from a plain regional one. Calling
 `gemini-3.7-flash` at `us-central1` returns a 404 that reads exactly like a
 permissions problem and is not one. ClickHouse and the asset bucket stay in
-`us-central1`; only the model calls go to `us`.
+`us-central1`; only the model calls leave it.
+
+Which of those pools you ask turns out to matter, and it is the only lever
+there is. Gemini 3 models carry no per-project rate quota: the project's quota
+list has rows for 1.5, for `gemini-pro`, for the TTS models, and nothing at all
+for `gemini-3.7-flash`, because it runs on capacity shared between customers
+and allocated as it goes. There is no increase to request and paying more does
+not buy more. Measured, three concurrent reads, two bursts each: `us` answered
+the first burst and lost the whole second one, zero of three; `global` answered
+six of six. A single call is slower there, about 27 seconds against 15, which
+is a bargain against a refusal that costs up to ninety seconds of backoff.
+Moving the agent to `global` took a run that had not finished in ten minutes
+down to 349 seconds.
 
 None of that sinks the design, and the reason is worth stating plainly: the
 system compares takes against takes, never against absolute truth, so a

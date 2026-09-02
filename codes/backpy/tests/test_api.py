@@ -137,10 +137,10 @@ class TestCompareRoute:
             raise RuntimeError("Reauthentication is needed.")
 
         monkeypatch.setattr("app.tools.vision.observe_frame", fails)
-        # The handler waits before its last attempt, on the theory that a total
-        # failure is usually a rate limit. Correct in production, and twenty
-        # seconds of nothing in a test suite.
-        monkeypatch.setattr("app.main.RETRY_PAUSE_S", 0.0)
+        # The handler backs off between retries, which is right in production
+        # and is nineteen seconds of nothing in a test suite.
+        monkeypatch.setattr("app.main.RETRY_PAUSES_S", (0.0, 0.0, 0.0))
+        monkeypatch.setattr("app.main.READ_STAGGER_S", 0.0)
 
         response = client.post(
             "/api/compare",

@@ -558,9 +558,21 @@ async def _read_frame(upload: UploadFile, role: str) -> bytes:
 #: three times.
 READS_PER_FRAME = 3
 
-#: How long to wait before the last attempt, when every read of a frame failed
-#: at once. Long enough for a per-minute limit to breathe.
-RETRY_PAUSE_S = 20.0
+#: How long to wait before each retry of a read that failed. Short and rising,
+#: because the limit being hit is a burst limit: a couple of seconds usually
+#: clears it, and a flat twenty second pause turned a slow request into a five
+#: hundred second one that the browser gave up on.
+RETRY_PAUSES_S = (2.0, 5.0, 12.0)
+
+#: How long a single frame may spend being measured before the answer is given
+#: on whatever readings came back. A person waiting on a page needs a bounded
+#: wait more than a perfect one, and a short reading is now reported as short
+#: rather than passed off as whole.
+FRAME_DEADLINE_S = 90.0
+
+#: How far apart the first reads are fired. Three requests landing in the same
+#: instant is itself a good way to earn a rate limit.
+READ_STAGGER_S = 0.6
 
 
 async def _observe(payload: bytes, role: str, settings: Any) -> list[dict[str, Any]]:
@@ -572,40 +584,46 @@ async def _observe(payload: bytes, role: str, settings: Any) -> list[dict[str, A
     """
     from app.tools.vision import observe_frame
 
-    async def read_once() -> list[dict[str, Any]]:
+    async def read_once(delay: float = 0.0) -> list[dict[str, Any]]:
+        if delay:
+            await asyncio.sleep(delay)
         return await asyncio.to_thread(
             observe_frame, payload, mime_type="image/jpeg", settings=settings
         )
 
-    # Sent together and allowed to fail apart. Three calls at once is enough to
-    # earn a rate limit on a small quota, and losing the whole frame because
-    # one of three came back 429 would be throwing away two good measurements.
-    # Two readings are still better than one; one is still better than none.
+    started = time.monotonic()
+
+    # Fired together but not in the same instant, and allowed to fail apart.
+    # Losing a whole frame because one of three came back 429 would throw away
+    # two good measurements.
     attempts = await asyncio.gather(
-        *(read_once() for _ in range(READS_PER_FRAME)), return_exceptions=True
+        *(read_once(index * READ_STAGGER_S) for index in range(READS_PER_FRAME)),
+        return_exceptions=True,
     )
     readings = [r for r in attempts if not isinstance(r, BaseException)]
-    failures = [r for r in attempts if isinstance(r, BaseException)]
 
-    if failures:
-        # A shortfall is usually a rate limit rather than a bad frame, and
-        # carrying on with what came back is not good enough: in production a
-        # frame that got one read instead of three returned a single noisy
-        # measurement that flipped the verdict. So the missing reads are asked
-        # for again, one at a time and after a pause, rather than quietly
-        # settling for a weaker answer.
+    # A shortfall is usually a burst limit rather than a bad frame, and carrying
+    # on with what came back is not good enough: in production a frame that got
+    # one reading of three returned a single noisy measurement that flipped the
+    # verdict. So the missing reads are asked for again, backing off, until they
+    # are filled or the frame runs out of time.
+    for pause in RETRY_PAUSES_S:
+        if len(readings) >= READS_PER_FRAME:
+            break
+        if time.monotonic() - started > FRAME_DEADLINE_S:
+            break
+        try:
+            readings.append(await read_once(pause))
+        except Exception as error:  # noqa: BLE001
+            logger.warning("a retried read of the %s frame failed: %s", role, error)
+
+    if len(readings) < READS_PER_FRAME:
         logger.warning(
-            "%s of %s reads failed on the %s frame; retrying the shortfall",
-            len(failures),
-            READS_PER_FRAME,
+            "the %s frame was measured %s times of %s",
             role,
+            len(readings),
+            READS_PER_FRAME,
         )
-        for _ in range(READS_PER_FRAME - len(readings)):
-            await asyncio.sleep(RETRY_PAUSE_S)
-            try:
-                readings.append(await read_once())
-            except Exception as error:  # noqa: BLE001
-                logger.warning("a retried read of the %s frame failed too: %s", role, error)
 
     if not readings:
         logger.error("every read of the %s frame failed", role)

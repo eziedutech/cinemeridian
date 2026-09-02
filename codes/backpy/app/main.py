@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import statistics
+from dataclasses import replace
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -217,6 +218,51 @@ class AnalyzeRequest(BaseModel):
     longitude: float = Field(default=SCENE_LONGITUDE, ge=-180, le=180)
 
 
+async def _provenance_for(request: Any) -> str:
+    """What is actually known about this project, in the agent's own briefing.
+
+    Read from the rows rather than passed along by the caller, so it describes
+    what is in the database rather than what somebody meant to put there. A
+    position stored as NaN is the mark of a project where nobody said where
+    they filmed, and the sun checks will already have come back empty; this is
+    what stops the agent explaining that emptiness as "no contradictions found".
+    """
+    from app.tools import agent_tools
+    from app.tools.candidates import _rows_from
+
+    sql = (
+        "SELECT count() AS takes, "
+        "isNaN(any(latitude)) AS no_place, "
+        "formatDateTime(min(started_at), '%Y-%m-%d %H:%i') AS first_at, "
+        "formatDateTime(max(ended_at), '%Y-%m-%d %H:%i') AS last_at "
+        f"FROM cinemeridian.takes WHERE scene_id = '{request.scene_id}'"
+    )
+    try:
+        _, rows = _rows_from(await agent_tools._run_via_mcp(sql))
+    except Exception:  # noqa: BLE001
+        logger.exception("could not read the project's provenance")
+        return "- (could not be read; treat every fact below as unverified)"
+
+    if not rows:
+        return "- (no takes found for this scene)"
+
+    takes, no_place, first_at, last_at = rows[0]
+    lines = [f"- {takes} takes, in the order they would be cut."]
+    if no_place:
+        lines.append(
+            "- **No position was given.** No ephemeris exists for this project, so "
+            "every sun candidate is absent because it could not be computed, not "
+            "because nothing was wrong. Do not describe the sun as consistent."
+        )
+    else:
+        lines.append(
+            f"- Filmed at latitude {request.latitude}, longitude {request.longitude}, "
+            "so the sun was computed for the whole window."
+        )
+    lines.append(f"- Capture times run {first_at} to {last_at} UTC.")
+    return "\n".join(lines)
+
+
 async def _candidates_for(request: Any) -> str:
     """Work out every contradiction in a project before the agent starts.
 
@@ -280,6 +326,7 @@ async def analyze(request: AnalyzeRequest):
             latitude=request.latitude,
             longitude=request.longitude,
             candidates=await _candidates_for(request),
+            provenance=await _provenance_for(request),
         )
 
     async def events():
@@ -890,7 +937,14 @@ async def ground(
     two pictures it can see at once is a different question, and on a planted
     mark it answered the same way eight times out of eight.
     """
-    from app.tools.ground import AGREEMENT, READS, agree, agree_place, parse_reading
+    from app.tools.ground import (
+        AGREEMENT,
+        READS,
+        agree,
+        agree_conditions,
+        agree_place,
+        parse_reading,
+    )
 
     if not 2 <= columns <= 8 or not 2 <= rows <= 8:
         raise HTTPException(status_code=400, detail="grid must be between 2 and 8 each way")
@@ -922,6 +976,15 @@ async def ground(
 
     needed = 1 if (reads or READS_PER_FRAME) < 2 else AGREEMENT
     differences = agree(readings, columns, rows, needed) if same_place else []
+
+    # What is lighting each frame, which decides whether the sun can be used as
+    # a clock at all. Sunlight through a window is still sunlight; a shuttered
+    # room at noon is not. The walls never decided this, the light does.
+    conditions = {
+        side: _conditions_payload(agree_conditions(answers, side))
+        for side in ("outgoing", "incoming")
+    }
+
     return {
         "grid": {"columns": columns, "rows": rows},
         "reads": len(answers),
@@ -931,6 +994,7 @@ async def ground(
         "same_place": same_place,
         "place_note": place_note,
         "place_votes": place_votes,
+        "conditions": conditions,
         "differences": [
             {
                 "cell": item.cell,
@@ -946,6 +1010,20 @@ async def ground(
             }
             for item in differences
         ],
+    }
+
+
+def _conditions_payload(conditions: Any) -> dict[str, Any] | None:
+    if conditions is None:
+        return None
+    return {
+        "regime": conditions.regime,
+        "shadows_are": conditions.shadows_are,
+        "time_of_day": conditions.time_of_day,
+        "opening_in_frame": conditions.opening_in_frame,
+        "opening_is_bright": conditions.opening_is_bright,
+        "lamps_visibly_on": conditions.lamps_visibly_on,
+        "sun_is_usable": conditions.sun_is_usable,
     }
 
 
@@ -987,8 +1065,8 @@ PROJECT_FRAME_TTL_HOURS = 24
 @app.post("/api/project")
 async def create_project(
     request: Request,
-    latitude: float = Form(...),
-    longitude: float = Form(...),
+    latitude: float | None = Form(None),
+    longitude: float | None = Form(None),
     store_frames: bool = Form(False),
 ) -> dict[str, Any]:
     """Turn a visitor's clips into a production the agent can investigate.
@@ -1012,8 +1090,17 @@ async def create_project(
     """
     from app.tools.project import MAX_TAKES, MIN_TAKES, Project, TakeInput, build_statements
 
-    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
-        raise HTTPException(status_code=400, detail="latitude or longitude out of range")
+    # Nothing here is required but the clips. A position buys the sun checks and
+    # nothing else; without it the ground, the light and everything that only
+    # accumulates are still compared, and the page says which checks did not
+    # run rather than quietly running fewer.
+    if latitude is not None and longitude is not None:
+        if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            raise HTTPException(
+                status_code=400, detail="latitude or longitude out of range"
+            )
+    else:
+        latitude = longitude = None
 
     form = await request.form()
     indices = sorted(
@@ -1033,6 +1120,13 @@ async def create_project(
     project = Project.new()
     takes = []
 
+    # A project whose clips carry no time gets an ordered sequence instead, and
+    # is marked so. Mixing real times with invented ones would produce gaps that
+    # look measured and are not, so one missing time makes the whole set
+    # nominal: ordering is still true, duration is not.
+    times_known = True
+    raw_times: list[datetime | None] = []
+
     for position, index in enumerate(indices, start=1):
         head = form.get(f"take_{index}_head")
         tail = form.get(f"take_{index}_tail")
@@ -1043,11 +1137,17 @@ async def create_project(
                 status_code=400, detail=f"take {index} is missing a head or tail frame"
             )
 
-        recorded_at = _parse_moment(str(form.get(f"take_{index}_recorded_at", "")), f"take {index}")
+        stamp = str(form.get(f"take_{index}_recorded_at", "") or "")
+        recorded_at = _parse_moment(stamp, f"take {index}") if stamp else None
+        if recorded_at is None:
+            times_known = False
+
         try:
             duration = float(form.get(f"take_{index}_duration", 0) or 0)
         except (TypeError, ValueError):
             duration = 0.0
+
+        conditions = _conditions_from_form(form, index)
 
         # One reading per frame here, not the three the pairwise check uses.
         # That is what the demo scene's own ingest does, and a project of six
@@ -1078,17 +1178,28 @@ async def create_project(
             head_uri = await _store_frame(head_bytes, project, position, "head", settings)
             tail_uri = await _store_frame(tail_bytes, project, position, "tail", settings)
 
+        raw_times.append(recorded_at)
         takes.append(
             TakeInput(
                 index=position,
-                recorded_at=recorded_at,
+                recorded_at=recorded_at or datetime.now(timezone.utc),
                 duration_seconds=duration,
                 head_observations=head_observations,
                 tail_observations=tail_observations,
                 head_uri=head_uri,
                 tail_uri=tail_uri,
+                conditions=conditions,
             )
         )
+
+    if not times_known:
+        # Spaced a nominal five minutes apart so the cut order survives, with
+        # nothing to read into the gaps.
+        base = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+        takes = [
+            replace(take, recorded_at=base + timedelta(minutes=5 * (take.index - 1)))
+            for take in takes
+        ]
 
     statements = build_statements(project, takes, latitude, longitude)
     written = await _write_project(statements)
@@ -1108,10 +1219,37 @@ async def create_project(
         ],
         "rows_written": written,
         "frames_stored": store_frames,
+        "times_known": times_known,
+        "position_known": latitude is not None,
         "latitude": latitude,
         "longitude": longitude,
         "model": settings.model,
     }
+
+
+def _conditions_from_form(form: Any, index: int) -> dict[str, Any] | None:
+    """The lighting this take was already read to have.
+
+    Sent up by the browser rather than asked for again: the scene-change check
+    has both frames in one picture and answers all of this in the same call, so
+    asking a second time would be twenty seconds spent on an answer already in
+    hand.
+    """
+    found: dict[str, Any] = {}
+    for key in (
+        "regime",
+        "time_of_day",
+        "shadows_are",
+        "opening_in_frame",
+        "opening_is_bright",
+        "lamps_visibly_on",
+    ):
+        raw = form.get(f"take_{index}_{key}")
+        if raw in (None, ""):
+            continue
+        text = str(raw)
+        found[key] = True if text == "true" else False if text == "false" else text
+    return found or None
 
 
 async def _observe_or_none(

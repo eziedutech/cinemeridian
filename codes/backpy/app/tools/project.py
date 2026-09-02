@@ -55,6 +55,9 @@ class TakeInput:
     """One clip, as the browser describes it."""
 
     index: int
+    #: When the file says it was recorded. Synthetic and ordered when no file
+    #: carried a time and nobody typed one, in which case `times_known` on the
+    #: project is false and nothing may be concluded from these.
     recorded_at: datetime
     duration_seconds: float
     head_observations: list[dict[str, Any]]
@@ -65,6 +68,12 @@ class TakeInput:
     #: at" rather than following a path to nowhere.
     head_uri: str = ""
     tail_uri: str = ""
+
+    #: What was lighting this take, read once during the scene-change check and
+    #: carried here rather than asked again. Regime, apparent time of day, and
+    #: whether the room's opening and lamps were doing anything. Empty when the
+    #: perception call could not answer, which is different from answering "no".
+    conditions: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -88,8 +97,8 @@ class Project:
 def build_statements(
     project: Project,
     takes: list[TakeInput],
-    latitude: float,
-    longitude: float,
+    latitude: float | None,
+    longitude: float | None,
 ) -> list[str]:
     """Every INSERT this project needs, in the order they must run.
 
@@ -101,16 +110,24 @@ def build_statements(
     if not MIN_TAKES <= len(takes) <= MAX_TAKES:
         raise ValueError(f"a project needs between {MIN_TAKES} and {MAX_TAKES} takes")
 
-    return [
-        _takes_insert(project, takes, latitude, longitude),
-        _ephemeris_insert(project, takes, latitude, longitude),
-        _observations_insert(project, takes),
-        _edit_insert(project, takes),
-    ]
+    # No position, no ephemeris. Every sun check joins against those rows, so
+    # their absence switches the whole physics branch off by itself rather than
+    # by a flag somebody has to remember to check. What is left still answers
+    # plenty: what changed on the ground, what runs backwards, and what the
+    # light itself says.
+    statements = [_takes_insert(project, takes, latitude, longitude)]
+    if latitude is not None and longitude is not None:
+        statements.append(_ephemeris_insert(project, takes, latitude, longitude))
+    statements.append(_observations_insert(project, takes))
+    statements.append(_edit_insert(project, takes))
+    return statements
 
 
 def _takes_insert(
-    project: Project, takes: list[TakeInput], latitude: float, longitude: float
+    project: Project,
+    takes: list[TakeInput],
+    latitude: float | None,
+    longitude: float | None,
 ) -> str:
     rows = []
     for take in takes:
@@ -132,8 +149,12 @@ def _takes_insert(
                     _text("main"),
                     _text(_stamp(take.recorded_at)),
                     _text(_stamp(ended)),
-                    repr(float(latitude)),
-                    repr(float(longitude)),
+                    # NaN rather than zero when no position was given. Zero is
+                    # a real place in the Gulf of Guinea, and a reader who took
+                    # it at face value would be told about a sun that was never
+                    # there.
+                    "nan" if latitude is None else repr(float(latitude)),
+                    "nan" if longitude is None else repr(float(longitude)),
                     # No file carries a camera heading and no visitor was asked
                     # for one. Zero here would be a measurement that nobody
                     # made, so the physics tools recover it from the shadow.
@@ -209,14 +230,66 @@ def _ephemeris_insert(
     )
 
 
+#: What each condition becomes as a row. Kept in the same entity and attribute
+#: vocabulary as everything else, so the joins that compare a shadow across a
+#: cut compare a lighting regime across a cut with no new machinery.
+CONDITION_ROWS = (
+    ("lighting", "regime", "regime", False),
+    ("lighting", "time_of_day", "time_of_day", False),
+    ("lighting", "shadows_are", "shadows_are", False),
+    ("opening", "in_frame", "opening_in_frame", True),
+    ("opening", "is_bright", "opening_is_bright", True),
+    ("lamps", "on", "lamps_visibly_on", True),
+)
+
+
+def _condition_observations(conditions: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Turn a take's lighting into observations, skipping what was not answered.
+
+    An unanswered condition is left out rather than written as a default. A
+    regime of `artificial` invented from silence would switch the sun off on a
+    shot filmed in full daylight, which is a worse error than having no row.
+    """
+    if not conditions:
+        return []
+
+    rows = []
+    for entity, attribute, key, is_flag in CONDITION_ROWS:
+        value = conditions.get(key)
+        if value is None or value == "":
+            continue
+        rows.append(
+            {
+                "entity": entity,
+                "attribute": attribute,
+                "value": "yes" if value is True else "no" if value is False else str(value),
+                "numeric_value": (1.0 if value else 0.0) if is_flag else None,
+                "monotonic_dir": "none",
+                "in_focus": True,
+                # These describe the whole frame rather than a thing in it, so
+                # there is no meaningful coverage. A hundred says so honestly
+                # instead of a zero that the filters would read as invisible.
+                "frame_coverage_pct": 100.0,
+                "confidence": 0.0,
+            }
+        )
+    return rows
+
+
 def _observations_insert(project: Project, takes: list[TakeInput]) -> str:
     """The vision pass, as rows the agent's self-joins can operate on."""
     rows = []
     for take in takes:
         ended = take.recorded_at + timedelta(seconds=max(take.duration_seconds, 1.0))
+        # The lighting belongs to the take rather than to one of its ends, so it
+        # is written against both: the joins that compare a cut always look at
+        # one take's tail against the next take's head, and a condition present
+        # on only one of those would never be compared with anything.
+        conditions = _condition_observations(take.conditions)
+
         for beat, moment, observations, uri in (
-            (HEAD_BEAT, take.recorded_at, take.head_observations, take.head_uri),
-            (TAIL_BEAT, ended, take.tail_observations, take.tail_uri),
+            (HEAD_BEAT, take.recorded_at, take.head_observations + conditions, take.head_uri),
+            (TAIL_BEAT, ended, take.tail_observations + conditions, take.tail_uri),
         ):
             for observation in observations:
                 rows.append(_observation_row(project, take, beat, moment, uri, observation))

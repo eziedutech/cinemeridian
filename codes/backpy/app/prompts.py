@@ -183,8 +183,18 @@ and capture time.
 
 PROJECT_TASK = """
 Somebody has brought their own footage: cut {edit_version} of scene {scene_id},
-production {production_id}, filmed at latitude {latitude}, longitude {longitude}.
-Review it.
+production {production_id}. Review it.
+
+## What you were given, and what you were not
+
+{provenance}
+
+Nothing here was required of them beyond the clips themselves. Where a fact is
+absent, the checks that needed it did not run, and their absence is a fact about
+this review rather than a gap to fill with an assumption. Say which checks did
+not run and why. A reader who is told "no position was given, so the sun was
+never consulted" knows exactly what they have; a reader who is told nothing
+believes they got everything.
 
 The arithmetic is already done. Every contradiction the data can produce has
 been computed and is below, so **do not go looking for candidates yourself**.
@@ -210,6 +220,18 @@ How to read them:
   time rather than its filming time looks exactly like this.
 - `direction_vs_sun` is how far the shadow swung against how far the sun did.
   A camera move explains a large difference. So does a wrong time.
+- `conditions_differ` is the light itself changing across a join, read from the
+  frames before any file was consulted. A room lit by a beam through a window
+  on one side and by lamps on the other is not subtle: it is two times of day
+  presented as one moment. This one governs the four above it, because sunlight
+  through a window is still sunlight and obeys the same arithmetic as a beach,
+  while a shuttered room at noon obeys none of it. If the regime is
+  `artificial` on either side, the sun candidates mean nothing and should be
+  dismissed on those grounds rather than on their numbers.
+- `one_side_only` is something measured on one side of a join and not the
+  other. It is weak and labelled so: each frame is read once, so a missing row
+  is more often a missed reading than a missing thing. Worth a sentence, rarely
+  worth a finding.
 
 ## What is yours to do
 

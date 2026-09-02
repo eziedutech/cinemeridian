@@ -253,6 +253,69 @@ WHERE
     oa.numeric_value IS NOT NULL
     AND ob.numeric_value IS NOT NULL
 
+UNION ALL
+
+-- 6. The light itself changing across a join. A room lit by a beam through a
+--    window on one side of a cut and by lamps on the other is not a subtle
+--    thing an audience might miss; it is two different times of day presented
+--    as one moment. This is also the check that decides whether the sun can be
+--    used as a clock at all, so its answer governs the four above it.
+SELECT
+    'conditions_differ'           AS kind,
+    j.take_a                      AS take_a,
+    j.take_b                      AS take_b,
+    oa.entity                     AS entity,
+    oa.attribute                  AS attribute,
+    oa.value                      AS value_a,
+    ob.value                      AS value_b,
+    toString(round(dateDiff('minute', j.moment_a, j.moment_b), 1)) AS gap,
+    concat('read from the frames themselves, before any file was consulted')  AS detail,
+    100.0                         AS coverage,
+    1                             AS in_focus,
+    ''                            AS frame_uri
+FROM joins AS j
+INNER JOIN obs AS oa ON oa.take_id = j.take_a AND oa.story_beat = 2
+INNER JOIN obs AS ob
+    ON ob.take_id = j.take_b
+   AND ob.story_beat = 1
+   AND ob.entity = oa.entity
+   AND ob.attribute = oa.attribute
+WHERE
+    oa.entity IN ('lighting', 'opening', 'lamps')
+    AND oa.value != ob.value
+
+UNION ALL
+
+-- 7. Something measured on one side of a join and not the other. Weaker than
+--    the rest and labelled so: with one reading per frame at ingest, a missing
+--    row usually means the model did not mention it rather than that the thing
+--    was gone. Worth surfacing anyway, because the one time it is real it is a
+--    prop that vanished across a cut, and nothing else here would catch that.
+SELECT
+    'one_side_only'               AS kind,
+    j.take_a                      AS take_a,
+    j.take_b                      AS take_b,
+    oa.entity                     AS entity,
+    oa.attribute                  AS attribute,
+    coalesce(toString(oa.numeric_value), oa.value)  AS value_a,
+    'not measured'                                  AS value_b,
+    toString(round(dateDiff('minute', j.moment_a, j.moment_b), 1)) AS gap,
+    'weak: one reading per frame, so this is as likely a missed reading as a missing thing' AS detail,
+    oa.coverage                   AS coverage,
+    oa.in_focus                   AS in_focus,
+    oa.frame_uri                  AS frame_uri
+FROM joins AS j
+INNER JOIN obs AS oa ON oa.take_id = j.take_a AND oa.story_beat = 2
+LEFT JOIN obs AS ob
+    ON ob.take_id = j.take_b
+   AND ob.story_beat = 1
+   AND ob.entity = oa.entity
+   AND ob.attribute = oa.attribute
+WHERE
+    ob.take_id = ''
+    AND oa.entity NOT IN ('lighting', 'opening', 'lamps')
+    AND oa.coverage >= {MIN_COVERAGE_PCT}
+
 ORDER BY kind, take_a, entity, attribute
 """.strip()
 

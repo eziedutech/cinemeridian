@@ -69,6 +69,31 @@ city street are two places however similar the light. If they are not the same
 place, this is a cut between scenes rather than inside one, continuity does not
 apply across it, and you must report no differences at all.
 
+SECOND, what is lighting each frame, judged from the geometry of the shadows and
+not from how warm or bright the picture is. The sun is far enough away that
+everything it lights casts shadows running parallel, and each object casts
+exactly one. A lamp is a point inside the room, so its shadows spread out from
+beneath the object, and something standing under two or three lamps casts two or
+three shadows at once in different directions.
+
+This matters more than it looks. Sunlight through a window is still sunlight: a
+room with a beam falling across the floor obeys the same arithmetic as a beach,
+and the frame of the window prints itself in that beam as hard parallel bars.
+What decides whether the sun can be used as a clock is the light, never the
+walls. Choose one of:
+
+  sun_direct    a direct beam is on the subject, outdoors or through an opening
+  sun_indirect  daylight but no direct beam: overcast, or a shaded room
+  artificial    lamps only, no daylight reaching the subject
+  mixed         a direct beam and lamps lighting the same space
+
+THIRD, roughly what time of day each frame looks like, from the light alone and
+without being told anything. Say dawn, morning, midday, afternoon, golden_hour,
+dusk, or night. This is the one judgement here that needs no file, no clock and
+no coordinates, and it is worth making carefully: a frame that looks like late
+afternoon while its file claims four in the morning has caught something no
+amount of metadata would have.
+
 If they are the same place, then look at the ground.
 
 The camera usually moves between two shots, so the same cell on each side covers
@@ -89,6 +114,11 @@ left of the cell and 1,1 the bottom right.
 
 Answer as JSON:
 {"same_place": true, "place_note": "why, in one sentence",
+"outgoing": {"regime": "...", "shadows_are": "parallel|radiating|none|unclear",
+"time_of_day": "...", "opening_in_frame": true, "opening_is_bright": true,
+"lamps_visibly_on": false},
+"incoming": {"regime": "...", "shadows_are": "...", "time_of_day": "...",
+"opening_in_frame": true, "opening_is_bright": true, "lamps_visibly_on": false},
 "differences": [{"cell": "C3", "present_in": "incoming", "what": "a dark smudge
 on the sand", "x_in_cell": 0.8, "y_in_cell": 0.7, "width_in_cell": 0.15,
 "height_in_cell": 0.12, "confidence": 0.0}], "verdict": "one sentence"}"""
@@ -268,3 +298,76 @@ def agree_place(texts: list[str]) -> tuple[bool, str, int]:
     if len(against) > len(for_it):
         return False, next((note for note in against if note), ""), len(against)
     return True, next((note for note in for_it if note), ""), len(for_it)
+
+
+#: The lighting regimes, and whether the sun can be used as a clock in each.
+#: The distinction is the light and never the walls: a beam through a window
+#: obeys the same arithmetic as a beach, and a shuttered room at noon obeys
+#: none of it.
+SUN_IS_USABLE = {"sun_direct": True, "sun_indirect": False,
+                 "artificial": False, "mixed": True}
+
+
+@dataclass(frozen=True)
+class FrameConditions:
+    """What one frame says about its own light, before any file is consulted."""
+
+    regime: str
+    shadows_are: str
+    time_of_day: str
+    opening_in_frame: bool | None
+    opening_is_bright: bool | None
+    lamps_visibly_on: bool | None
+
+    @property
+    def sun_is_usable(self) -> bool:
+        return SUN_IS_USABLE.get(self.regime, False)
+
+
+def parse_conditions(text: str, side: str) -> FrameConditions | None:
+    """Read one side's conditions out of an answer, or nothing.
+
+    None rather than a default, because a guessed regime is worse than an
+    absent one: `artificial` invented from silence would switch off the physics
+    on a shot filmed in full sun.
+    """
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+
+    block = parsed.get(side)
+    if not isinstance(block, dict):
+        return None
+    regime = str(block.get("regime", "")).strip().lower()
+    if regime not in SUN_IS_USABLE:
+        return None
+
+    return FrameConditions(
+        regime=regime,
+        shadows_are=str(block.get("shadows_are", ""))[:20].lower(),
+        time_of_day=str(block.get("time_of_day", ""))[:20].lower(),
+        opening_in_frame=_flag(block.get("opening_in_frame")),
+        opening_is_bright=_flag(block.get("opening_is_bright")),
+        lamps_visibly_on=_flag(block.get("lamps_visibly_on")),
+    )
+
+
+def agree_conditions(texts: list[str], side: str) -> FrameConditions | None:
+    """The regime more readings agreed on, with the rest taken from that reading."""
+    seen = [parse_conditions(text, side) for text in texts]
+    found = [item for item in seen if item is not None]
+    if not found:
+        return None
+
+    tally: dict[str, int] = {}
+    for item in found:
+        tally[item.regime] = tally.get(item.regime, 0) + 1
+    winner = max(tally, key=lambda regime: tally[regime])
+    return next(item for item in found if item.regime == winner)
+
+
+def _flag(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None

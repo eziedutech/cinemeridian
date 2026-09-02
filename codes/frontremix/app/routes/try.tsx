@@ -35,9 +35,22 @@ type Project = {
   scene_id: string;
   edit_version: string;
   frames_stored: boolean;
+  times_known: boolean;
+  position_known: boolean;
 };
 
 type SceneChange = { from: number; to: number; note: string };
+
+/** What one frame said about its own light, before any file was consulted. */
+type Conditions = {
+  regime: string;
+  shadows_are: string;
+  time_of_day: string;
+  opening_in_frame: boolean | null;
+  opening_is_bright: boolean | null;
+  lamps_visibly_on: boolean | null;
+  sun_is_usable: boolean;
+};
 
 type TakeState = {
   file: File | null;
@@ -88,6 +101,7 @@ export default function TryYourClips() {
   const [findings, setFindings] = useState<Finding[]>([]);
   const [sceneChanges, setSceneChanges] = useState<SceneChange[]>([]);
   const [report, setReport] = useState("");
+  const [conditions, setConditions] = useState<Array<Conditions | null>>([]);
   const [showSteps, setShowSteps] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
@@ -95,13 +109,17 @@ export default function TryYourClips() {
     .map((id) => takes[id])
     .filter((take): take is TakeState => !!take?.headFrame && !!take?.tailFrame);
 
-  const missing: string[] = [];
-  if (ordered.length < MIN_TAKES) missing.push(`at least ${MIN_TAKES} clips`);
-  if (ordered.length >= MIN_TAKES && ordered.some((take) => take.when === "")) {
-    missing.push("the time each clip was recorded");
-  }
-  if (lat === "" || lon === "") missing.push("the position where you filmed");
-  const ready = missing.length === 0;
+  // The clips, and nothing else. A time and a position each buy one class of
+  // check and are worth having; neither is worth standing between somebody and
+  // an answer, and a tool that demands what the person already knows invites
+  // the obvious question of what it is for.
+  const ready = ordered.length >= MIN_TAKES;
+  const hasTimes = ordered.length > 0 && ordered.every((take) => take.when !== "");
+  const hasPlace = lat !== "" && lon !== "";
+
+  const skipped: string[] = [];
+  if (!hasPlace) skipped.push("everything that needs the sun's position");
+  if (!hasTimes) skipped.push("everything that needs the clock");
 
   const analyse = useCallback(async () => {
     if (!ready) return;
@@ -110,6 +128,7 @@ export default function TryYourClips() {
     setEvents([]);
     setFindings([]);
     setSceneChanges([]);
+    setConditions([]);
     setReport("");
 
     const startedAt = Date.now();
@@ -119,11 +138,20 @@ export default function TryYourClips() {
     );
 
     try {
-      setStage("Checking whether each join is inside one scene");
-      setSceneChanges(await findSceneChanges(apiBase, ordered));
+      setStage("Reading the light and checking each join is inside one scene");
+      const seen = await findSceneChanges(apiBase, ordered);
+      setSceneChanges(seen.changes);
+      setConditions(seen.conditions);
 
       setStage(`Reading ${ordered.length} clips and writing them into ClickHouse`);
-      const created = await createProject(apiBase, ordered, lat, lon, storeFrames);
+      const created = await createProject(
+        apiBase,
+        ordered,
+        lat,
+        lon,
+        storeFrames,
+        seen.conditions,
+      );
       setProject(created);
 
       setStage("The agent is investigating");
@@ -325,9 +353,9 @@ export default function TryYourClips() {
               {ordered.length === 2 ? "join" : "joins"}
             </h2>
             <p className="hint" style={{ margin: 0, maxWidth: "70ch" }}>
-              {ready
-                ? "Writes the project, then runs the agent over it. Four to six minutes, and every step is shown."
-                : `Still needs ${joinNicely(missing)}.`}
+              {skipped.length === 0
+                ? "Every check runs: the light, the ground, and the sun."
+                : `Runs without ${joinNicely(skipped)}. Fill in the time or the position above to add those.`}
             </p>
           </div>
           <button type="button" onClick={analyse} disabled={!ready || !!stage}>
@@ -371,6 +399,41 @@ export default function TryYourClips() {
         </section>
       ) : null}
 
+      {conditions.some(Boolean) ? (
+        <section className="panel">
+          <h2>
+            What the light says
+            <Info>
+              Read from the frames alone, before any file was opened and without
+              a position or a clock. The sun is far enough away that its shadows
+              run parallel and each object casts one; a lamp is a point in the
+              room, so its shadows spread out from beneath things. That
+              distinction, and not the walls, decides whether the sun can be
+              used as a clock: a beam through a window obeys the same arithmetic
+              as a beach.
+            </Info>
+          </h2>
+          <div className="light-row">
+            {conditions.map((light, index) =>
+              light ? (
+                <div className="light-card" key={index}>
+                  <b>Take {index + 1}</b>
+                  <span className={light.sun_is_usable ? "lit-sun" : "lit-lamp"}>
+                    {light.regime.replace(/_/g, " ")}
+                  </span>
+                  <em>
+                    looks like {light.time_of_day.replace(/_/g, " ")}, shadows{" "}
+                    {light.shadows_are}
+                    {light.lamps_visibly_on === true ? ", lamps on" : ""}
+                    {light.opening_is_bright === true ? ", a bright opening" : ""}
+                  </em>
+                </div>
+              ) : null,
+            )}
+          </div>
+        </section>
+      ) : null}
+
       {project ? (
         <section className="panel">
           <h2>Your project</h2>
@@ -390,6 +453,22 @@ export default function TryYourClips() {
             <div className="fact">
               <dt>Frames kept</dt>
               <dd>{project.frames_stored ? "yes, for 24 hours" : "no"}</dd>
+            </div>
+            <div className="fact">
+              <dt>Sun checks</dt>
+              <dd>
+                {project.position_known
+                  ? "ran, a position was given"
+                  : "did not run, no position was given"}
+              </dd>
+            </div>
+            <div className="fact">
+              <dt>Clock checks</dt>
+              <dd>
+                {project.times_known
+                  ? "ran, the files carried times"
+                  : "did not run, no times were given"}
+              </dd>
             </div>
           </dl>
         </section>
@@ -606,8 +685,12 @@ function TakeCard({
  * is a far easier question than counting marks on sand, and five joins read
  * three times each would be fifteen calls before the work started.
  */
-async function findSceneChanges(base: string, takes: TakeState[]): Promise<SceneChange[]> {
+async function findSceneChanges(
+  base: string,
+  takes: TakeState[],
+): Promise<{ changes: SceneChange[]; conditions: Array<Conditions | null> }> {
   const changes: SceneChange[] = [];
+  const conditions: Array<Conditions | null> = takes.map(() => null);
 
   for (let index = 0; index + 1 < takes.length; index += 1) {
     const outgoing = takes[index].tailFrame;
@@ -627,12 +710,20 @@ async function findSceneChanges(base: string, takes: TakeState[]): Promise<Scene
     const response = await fetch(`${base}/api/ground`, { method: "POST", body });
     if (!response.ok) continue;
 
-    const answer = (await response.json()) as { same_place: boolean; place_note: string };
+    const answer = (await response.json()) as {
+      same_place: boolean;
+      place_note: string;
+      conditions?: { outgoing: Conditions | null; incoming: Conditions | null };
+    };
     if (!answer.same_place) {
       changes.push({ from: index + 1, to: index + 2, note: answer.place_note });
     }
+    // The same call already read what is lighting both frames. Carrying that
+    // forward rather than asking again saves twenty seconds a join.
+    conditions[index] = conditions[index] ?? answer.conditions?.outgoing ?? null;
+    conditions[index + 1] = answer.conditions?.incoming ?? null;
   }
-  return changes;
+  return { changes, conditions };
 }
 
 async function createProject(
@@ -641,18 +732,35 @@ async function createProject(
   lat: string,
   lon: string,
   storeFrames: boolean,
+  conditions: Array<Conditions | null>,
 ): Promise<Project> {
   const form = new FormData();
-  form.append("latitude", lat);
-  form.append("longitude", lon);
   form.append("store_frames", String(storeFrames));
+  // Sent only when known. An empty field would arrive as a position of zero,
+  // which is a real place in the Gulf of Guinea and a confident wrong answer.
+  if (lat !== "" && lon !== "") {
+    form.append("latitude", lat);
+    form.append("longitude", lon);
+  }
 
   takes.forEach((take, index) => {
     const n = index + 1;
     form.append(`take_${n}_head`, take.headFrame!.blob, `t${n}_head.jpg`);
     form.append(`take_${n}_tail`, take.tailFrame!.blob, `t${n}_tail.jpg`);
-    form.append(`take_${n}_recorded_at`, new Date(take.when).toISOString());
     form.append(`take_${n}_duration`, String(take.duration));
+    if (take.when !== "") {
+      form.append(`take_${n}_recorded_at`, new Date(take.when).toISOString());
+    }
+
+    const light = conditions[index];
+    if (light) {
+      form.append(`take_${n}_regime`, light.regime);
+      form.append(`take_${n}_time_of_day`, light.time_of_day);
+      form.append(`take_${n}_shadows_are`, light.shadows_are);
+      for (const key of ["opening_in_frame", "opening_is_bright", "lamps_visibly_on"] as const) {
+        if (light[key] !== null) form.append(`take_${n}_${key}`, String(light[key]));
+      }
+    }
   });
 
   const response = await fetch(`${base}/api/project`, { method: "POST", body: form });

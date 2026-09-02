@@ -96,6 +96,8 @@ class TestTheQuery:
             "runs_backwards",
             "slate_vs_sun",
             "direction_vs_sun",
+            "conditions_differ",
+            "one_side_only",
         ):
             assert f"'{kind}'" in sql
 
@@ -104,7 +106,7 @@ class TestTheQuery:
         failure arrives as a timeout rather than as anything readable."""
         sql = candidate_query(edit_version="v", scene_id="s", production_id="p")
         arms = sql.split("UNION ALL")
-        assert len(arms) == 5
+        assert len(arms) == 7
 
         expected = {
             "kind", "take_a", "take_b", "entity", "attribute", "value_a",

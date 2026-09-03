@@ -548,6 +548,11 @@ because framing is identical within a setup and the bias travels with framing.
 
 ## How this was built
 
+The developer used a code assistant to speed up development. Every design
+decision, every measurement quoted here, and every claim about what the system
+finds was made and checked by hand; the assistant wrote code faster than one
+person types.
+
 The order was deliberate: physics first, then data, then the agent, then
 pictures. The ephemeris engine and its tests came before anything else, because
 everything downstream compares against it - and its tests check facts that hold

@@ -46,8 +46,16 @@ const JPEG_QUALITY = 0.88;
 /** A seek to exactly `duration` lands past the last frame on most decoders. */
 const TAIL_MARGIN_SECONDS = 0.06;
 
+/** How long a media event is given before the wait is called a failure. Both
+ *  are generous: a large clip on a slow machine is still opening at ten
+ *  seconds, and a wrong answer here is a clip refused that would have worked. */
+const METADATA_TIMEOUT_MS = 30_000;
+const SEEK_TIMEOUT_MS = 20_000;
+
 export class ClipTooLarge extends Error {}
 export class ClipTooLong extends Error {}
+/** The browser opened the file and then stopped, or never opened it at all. */
+export class ClipUnreadable extends Error {}
 
 export async function extractHeadAndTail(
   file: File,
@@ -72,6 +80,13 @@ export async function extractHeadAndTail(
       ).toFixed(0)} MB limit.`,
     );
   }
+
+  // Chrome does not decode video in a tab nobody is looking at, and a element
+  // that never fires `loadedmetadata` leaves every wait below hanging with
+  // nothing to report. So the work waits for the tab rather than starting into
+  // a decoder that has been put to sleep, and picks up by itself the moment
+  // somebody comes back to it.
+  await whenVisible();
 
   const url = URL.createObjectURL(file);
   const video = document.createElement("video");
@@ -157,23 +172,62 @@ export function planTimes(
 }
 
 function seekTo(video: HTMLVideoElement, time: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const onSeeked = () => {
-      cleanup();
+  return deadline(
+    new Promise<void>((resolve, reject) => {
+      const onSeeked = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error(`Could not seek to ${time.toFixed(2)}s in this file.`));
+      };
+      const cleanup = () => {
+        video.removeEventListener("seeked", onSeeked);
+        video.removeEventListener("error", onError);
+      };
+      video.addEventListener("seeked", onSeeked, { once: true });
+      video.addEventListener("error", onError, { once: true });
+      video.currentTime = time;
+    }),
+    SEEK_TIMEOUT_MS,
+    `The browser stopped part way through this clip, at ${time.toFixed(2)}s.`,
+  );
+}
+
+/**
+ * Resolve once the tab is on screen.
+ *
+ * Not a guard against a rare case: switching tabs while several clips decode is
+ * the ordinary thing to do, and a decoder that has been suspended fires no
+ * event at all, so every wait downstream would sit there for as long as the
+ * page is left open.
+ */
+function whenVisible(): Promise<void> {
+  if (document.visibilityState !== "hidden") return Promise.resolve();
+  return new Promise((resolve) => {
+    const onChange = () => {
+      if (document.visibilityState === "hidden") return;
+      document.removeEventListener("visibilitychange", onChange);
       resolve();
     };
-    const onError = () => {
-      cleanup();
-      reject(new Error(`Could not seek to ${time.toFixed(2)}s in this file.`));
-    };
-    const cleanup = () => {
-      video.removeEventListener("seeked", onSeeked);
-      video.removeEventListener("error", onError);
-    };
-    video.addEventListener("seeked", onSeeked, { once: true });
-    video.addEventListener("error", onError, { once: true });
-    video.currentTime = time;
+    document.addEventListener("visibilitychange", onChange);
   });
+}
+
+/**
+ * Fail loudly rather than wait forever.
+ *
+ * Every wait here is on a media event, and a decoder that gives up gives no
+ * sign of it. Without a deadline the page keeps saying it is working, which is
+ * worse than saying it failed.
+ */
+function deadline<T>(work: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const expiry = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new ClipUnreadable(message)), ms);
+  });
+  return Promise.race([work, expiry]).finally(() => clearTimeout(timer)) as Promise<T>;
 }
 
 function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
@@ -187,12 +241,16 @@ function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 }
 
 function once(target: HTMLVideoElement, event: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    target.addEventListener(event, () => resolve(), { once: true });
-    target.addEventListener(
-      "error",
-      () => reject(new Error("This file could not be decoded in the browser.")),
-      { once: true },
-    );
-  });
+  return deadline(
+    new Promise<void>((resolve, reject) => {
+      target.addEventListener(event, () => resolve(), { once: true });
+      target.addEventListener(
+        "error",
+        () => reject(new Error("This file could not be decoded in the browser.")),
+        { once: true },
+      );
+    }),
+    METADATA_TIMEOUT_MS,
+    "This browser did not open the clip. It may be a format it cannot decode.",
+  );
 }

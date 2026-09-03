@@ -1,16 +1,12 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { json, type LoaderFunctionArgs } from "@remix-run/node";
-import { Link, useLoaderData } from "@remix-run/react";
+import { Link, useLoaderData, useSearchParams } from "@remix-run/react";
 
 import { AgentTimeline, type TimelineEvent } from "~/components/AgentTimeline";
-import {
-  CutComparison,
-  type Grid,
-  type GridDifference,
-} from "~/components/CutComparison";
+import type { Grid, GridDifference } from "~/components/CutComparison";
 import { FilmRoll } from "~/components/FilmRoll";
 import { Info } from "~/components/Info";
-import { Report } from "~/components/Report";
+import { ResultView, type ResultFact } from "~/components/ResultView";
 import { FindingsMap } from "~/components/FindingsMap";
 import { apiBase, type Finding } from "~/lib/api";
 import {
@@ -190,6 +186,75 @@ export default function TryYourClips() {
       setStage(null);
     }
   }, [ready, ordered, lat, lon, storeFrames, apiBase]);
+
+  const [searchParams] = useSearchParams();
+  const [loadingSamples, setLoadingSamples] = useState<string | null>(null);
+
+  // Arriving from the front page with a choice already made. The clips are
+  // fetched through the API's proxy rather than from a public bucket, decoded
+  // here like any other file, and from that point on nothing knows they were
+  // ours rather than somebody's own.
+  useEffect(() => {
+    const wanted = (searchParams.get("clips") ?? "").split(",").filter(Boolean);
+    if (wanted.length === 0) return;
+
+    let live = true;
+    (async () => {
+      try {
+        setLoadingSamples(`Fetching ${wanted.length} sample clips`);
+        const listed = await fetch(`${apiBase}/api/samples`).then((r) => r.json());
+        const byFile: Record<string, string> = {};
+        for (const clip of listed.clips ?? []) byFile[clip.file] = clip.uri;
+
+        const loaded: Record<number, TakeState> = {};
+        for (const [index, file] of wanted.entries()) {
+          const uri = byFile[file];
+          if (!uri) continue;
+          setLoadingSamples(`Fetching sample ${index + 1} of ${wanted.length}`);
+          const response = await fetch(
+            `${apiBase}/api/frame?uri=${encodeURIComponent(uri)}`,
+          );
+          if (!response.ok) continue;
+          const blob = await response.blob();
+          const asFile = new File([blob], file, { type: "video/mp4" });
+
+          setLoadingSamples(`Reading sample ${index + 1} of ${wanted.length}`);
+          const meta = await readMp4Metadata(asFile);
+          const extracted = await extractHeadAndTail(asFile, { limits });
+          if (!live) return;
+
+          loaded[index + 1] = {
+            file: asFile,
+            meta,
+            headFrame: extracted.frames.find((f) => f.role === "head") ?? null,
+            tailFrame:
+              [...extracted.frames].reverse().find((f) => f.role === "tail") ?? null,
+            duration: extracted.durationSeconds,
+            when: meta.recordedAt ? toLocalInput(meta.recordedAt) : "",
+          };
+        }
+
+        if (!live) return;
+        setSlots(wanted.map((_, index) => index + 1));
+        setTakes(loaded);
+      } catch (caught) {
+        if (live) {
+          setProblem(
+            caught instanceof Error ? caught.message : "The sample clips could not be loaded.",
+          );
+        }
+      } finally {
+        if (live) setLoadingSamples(null);
+      }
+    })();
+
+    return () => {
+      live = false;
+    };
+    // Once, on arrival. Re-running this would replace clips somebody has since
+    // swapped out by hand.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const [placeNote, setPlaceNote] = useState<string | null>(null);
 
@@ -388,6 +453,13 @@ export default function TryYourClips() {
         </section>
       ) : null}
 
+      {loadingSamples ? (
+        <p className="empty">
+          <span className="pulse" aria-hidden="true" />
+          {loadingSamples}…
+        </p>
+      ) : null}
+
       {stage ? (
         <FilmRoll
           stage={stage}
@@ -443,150 +515,14 @@ export default function TryYourClips() {
         </section>
       ) : null}
 
-      {report ? (
-        <section className="panel verdict-panel">
-          <h2>The answer</h2>
-          <Report markdown={shortVersion(report)} />
-          <button type="button" onClick={() => setReportOpen(true)}>
-            Show the full report
-          </button>
-        </section>
-      ) : null}
-
-      {joins.map((join) => {
-        const from = ordered[join.from - 1]?.tailFrame?.dataUrl;
-        const to = ordered[join.to - 1]?.headFrame?.dataUrl;
-        if (!from || !to) return null;
-        return (
-          <section className="panel" key={`${join.from}-${join.to}`}>
-            <h2>
-              What changed across the cut
-              <Info>
-                Both frames were laid side by side under this same grid and read
-                together, so what you see marked is a comparison rather than two
-                descriptions subtracted from each other. Cells are named the way
-                the model named them.
-              </Info>
-            </h2>
-            <CutComparison
-              outgoing={from}
-              incoming={to}
-              grid={join.grid}
-              differences={join.differences}
-              fromTake={join.from}
-              toTake={join.to}
-            />
-          </section>
-        );
-      })}
-
-      {reportOpen ? (
-        <div
-          className="sheet-over"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setReportOpen(false)}
-        >
-          <div className="sheet" onClick={(event) => event.stopPropagation()}>
-            <div className="sheet-head">
-              <h2>The full report</h2>
-              <button type="button" className="ghost small" onClick={() => setReportOpen(false)}>
-                Close
-              </button>
-            </div>
-            <div className="sheet-body">
-              <Report markdown={report} />
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {project || conditions.some(Boolean) ? (
-        <section className="panel">
-          <h2>
-            What this run had to work with
-            <Info>
-              The light is read from the frames alone, before any file is
-              opened. The sun is far enough away that its shadows run parallel
-              and each object casts one; a lamp is a point in the room, so its
-              shadows spread out from beneath things. That distinction decides
-              whether the sun can be used as a clock, and the walls never do: a
-              beam through a window obeys the same arithmetic as a beach.
-            </Info>
-          </h2>
-
-          {conditions.some(Boolean) ? (
-            <ul className="run-lights">
-              {conditions.map((light, index) =>
-                light ? (
-                  <li key={index}>
-                    <b>Take {index + 1}</b>
-                    <span className={light.sun_is_usable ? "lit-sun" : "lit-lamp"}>
-                      {light.regime.replace(/_/g, " ")}
-                    </span>
-                    <em>
-                      looks like {light.time_of_day.replace(/_/g, " ")}, shadows{" "}
-                      {light.shadows_are}
-                      {light.lamps_visibly_on === true ? ", lamps on" : ""}
-                      {light.opening_is_bright === true ? ", a bright opening" : ""}
-                    </em>
-                  </li>
-                ) : null,
-              )}
-            </ul>
-          ) : null}
-
-          {project ? (
-            <>
-              <p className="run-ran">
-                {project.position_known
-                  ? "The sun was computed for the whole window."
-                  : "No position was given, so the sun was never consulted."}{" "}
-                {project.times_known
-                  ? "The files carried their own capture times."
-                  : "No capture times were given, so the clock was never consulted."}{" "}
-                {project.frames_stored
-                  ? "Two frames per take are kept for 24 hours so the agent could look at them."
-                  : "No frames were kept, so nothing could be looked at."}
-              </p>
-              <p className="run-ids">
-                {project.production_id} · {project.edit_version}
-                <span>
-                  Written into the same tables the demo scene lives in, under its
-                  own production, so nothing of yours mixes with anything of ours.
-                </span>
-              </p>
-            </>
-          ) : null}
-        </section>
-      ) : null}
-
-      {events.length > 0 && !stage ? (
-        <section className="panel">
-          <div className="take-head">
-            <h2 style={{ marginBottom: 0 }}>
-              How it got there
-              <Info>
-                The findings above could have been produced by a script with
-                narration. These are the questions it actually chose to ask, in
-                the order it asked them, and whether each one worked. That is
-                the difference, and it is why they are kept.
-              </Info>
-            </h2>
-            <button
-              type="button"
-              className="ghost small"
-              onClick={() => setShowSteps((open) => !open)}
-            >
-              {showSteps ? "Hide the steps" : `Show all ${events.length} steps`}
-            </button>
-          </div>
-          <ProcessSummary events={events} seconds={elapsed} />
-          {showSteps ? (
-            <AgentTimeline events={events} running={false} elapsed={elapsed} />
-          ) : null}
-        </section>
-      ) : null}
+      <ResultView
+        report={report}
+        findings={findings}
+        comparison={firstComparison(joins, ordered)}
+        steps={events}
+        seconds={elapsed}
+        facts={runFacts(project, conditions)}
+      />
 
       <footer className="disclosure">
         <strong>Where your footage goes.</strong> The clips are decoded by your
@@ -1083,4 +1019,74 @@ function shortVersion(markdown: string): string {
   // still a great deal closer to an answer than the whole report would be.
   const body = markdown.replace(/^#.*$/m, "").trim();
   return body.split(/\n\s*\n/).slice(0, 2).join("\n\n");
+}
+
+
+/**
+ * The first join, as the shared view wants it.
+ *
+ * One comparison is shown rather than all of them: a page of side-by-side pairs
+ * is a contact sheet, and what a reader needs first is the one that carries the
+ * finding. The rest are in the report.
+ */
+function firstComparison(joins: Join[], takes: TakeState[]) {
+  const join = joins.find((candidate) => candidate.differences.length > 0) ?? joins[0];
+  if (!join) return null;
+
+  const outgoing = takes[join.from - 1]?.tailFrame?.dataUrl;
+  const incoming = takes[join.to - 1]?.headFrame?.dataUrl;
+  if (!outgoing || !incoming) return null;
+
+  return {
+    outgoing,
+    incoming,
+    grid: join.grid,
+    differences: join.differences,
+    fromLabel: `Take ${join.from}`,
+    toLabel: `Take ${join.to}`,
+  };
+}
+
+/** What this project was given, in the shape the shared view renders. */
+function runFacts(
+  project: Project | null,
+  conditions: Array<Conditions | null>,
+): ResultFact[] {
+  if (!project) return [];
+
+  const facts: ResultFact[] = conditions
+    .map((light, index): ResultFact | null =>
+      light
+        ? {
+            label: `Take ${index + 1}, light`,
+            value: `${light.regime.replace(/_/g, " ")}, looks like ${light.time_of_day.replace(/_/g, " ")}`,
+            info: light.sun_is_usable
+              ? "Shadows run parallel here, which is the sun. The sun can be used as a clock, indoors or out: a beam through a window obeys the same arithmetic as a beach."
+              : "Shadows spread out from a point here, which is a lamp rather than the sun, so nothing about the time of day can be read from them.",
+          }
+        : null,
+    )
+    .filter((fact): fact is ResultFact => fact !== null);
+
+  facts.push({
+    label: "Sun checks",
+    value: project.position_known ? "ran" : "skipped, no position was given",
+    info: "The sun's angle cannot be computed without knowing where you stood. Without a position these checks are absent because they could not run, not because nothing was wrong.",
+  });
+  facts.push({
+    label: "Clock checks",
+    value: project.times_known ? "ran" : "skipped, no capture times were given",
+  });
+  facts.push({
+    label: "Frames kept",
+    value: project.frames_stored ? "yes, for 24 hours" : "no",
+    info: "Without stored frames the agent can read your measurements but cannot see the pictures, and its visual adjudication has nothing to point at.",
+  });
+  facts.push({
+    label: "Project",
+    value: project.production_id,
+    info: "Written into the same tables the demo scene lives in, under its own production, so nothing of yours mixes with anything of ours.",
+  });
+
+  return facts;
 }

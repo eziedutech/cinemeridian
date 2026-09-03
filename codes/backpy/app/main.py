@@ -1500,10 +1500,67 @@ async def frame(uri: str):
 
     return Response(
         content=data,
-        media_type="image/jpeg",
-        # The frames are immutable once rendered, so let the browser keep them.
+        # The samples are clips rather than stills, and a browser handed a
+        # video labelled as a JPEG will not play it.
+        media_type="video/mp4" if blob_name.endswith(".mp4") else "image/jpeg",
+        # These are immutable once rendered, so let the browser keep them.
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+#: The clips that ship with the project, in the order they would be cut, each
+#: built to answer one question. A visitor with no footage of their own can run
+#: the whole thing on these, which matters: most people arriving here are not
+#: carrying two shots of a beach.
+SAMPLE_CLIPS = [
+    {
+        "file": "woman-1.mp4",
+        "title": "Beach, wide",
+        "note": "The shot the others are built from.",
+    },
+    {
+        "file": "woman-2.mp4",
+        "title": "Beach, moments later",
+        "note": "The same take, continued. Cut against the first, nothing should be wrong.",
+    },
+    {
+        "file": "woman-3.mp4",
+        "title": "Beach, with a bag",
+        "note": "A red bag now lies on the sand that was not there before.",
+    },
+    {
+        "file": "woman-4.mp4",
+        "title": "Beach, shot flipped",
+        "note": "The first shot mirrored, so its shadow points the wrong way. Flipping a shot to fix an eyeline is a real edit and a real fault.",
+    },
+    {
+        "file": "day-5.mp4",
+        "title": "Room, sun through the window",
+        "note": "Indoors, but the sun still rules: one hard shadow, parallel to the window bars.",
+    },
+    {
+        "file": "night-6.mp4",
+        "title": "Room, lamps at night",
+        "note": "The same room after dark. Three lamps, three shadows fanning out.",
+    },
+]
+
+
+@app.get("/api/samples")
+async def samples() -> dict[str, Any]:
+    """What sample clips exist, and where to fetch each one.
+
+    Listed rather than hard-coded in the page so the two never drift: the
+    clips live in the bucket, and this is the one place that says which of them
+    are the worked example.
+    """
+    settings = get_settings()
+    prefix = f"gs://{settings.gcs_asset_bucket}/samples/"
+    return {
+        "clips": [
+            {**clip, "uri": prefix + clip["file"]} for clip in SAMPLE_CLIPS
+        ]
+    }
 
 
 @app.exception_handler(ConfigError)

@@ -178,6 +178,21 @@ result as a finding.
 Scene facts you will need: production {production_id}, latitude {latitude},
 longitude {longitude}. The takes table carries each take's own camera heading
 and capture time.
+
+## How to write it
+
+Begin with a heading exactly `## The short version`, and under it at most three
+sentences answering the only question the reader came with: **is this cut safe
+to lock, and if not, what is the worst of it?**
+
+Those sentences are for an editor, not an engineer. No identifiers, no table
+names, no severities. Somebody who reads that and nothing else should know
+whether to worry; everything after it is for the person who wants to check your
+working.
+
+Then the detail, with one rule about order: what you found comes before what you
+could not check. A review that opens with a list of checks that did not run
+reads as an apology and buries the thing the reader is looking for.
 """.strip()
 
 

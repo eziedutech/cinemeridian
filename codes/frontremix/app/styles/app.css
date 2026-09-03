@@ -1136,6 +1136,71 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 .lit-sun { color: var(--sand); }
 .lit-lamp { color: var(--sea); }
 
+/* The invitation, given the weight of a door rather than a footnote */
+
+.invite {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 26px;
+  flex-wrap: wrap;
+  border-color: color-mix(in srgb, var(--sand) 45%, transparent);
+}
+
+.invite button { font-size: 15px; padding: 12px 26px; }
+
+/* The two doors inside it */
+
+.door { font-size: 14.5px; color: var(--ink); margin: 0 0 8px; }
+.door-rule { border: 0; border-top: 1px solid var(--line-soft); margin: 26px 0 22px; }
+
+.clip-list {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.clip {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  color: var(--ink-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.clip:hover { border-color: color-mix(in srgb, var(--sand) 50%, transparent); }
+
+/* Picked clips carry their position in the cut, because the order is the
+   thing being tested: the same clips in another order are another edit. */
+.clip.picked { border-color: var(--sand); background: color-mix(in srgb, var(--sand) 8%, var(--raised)); }
+.clip.picked .clip-order { background: var(--sand); color: #12141a; }
+
+.clip-order {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  background: var(--line);
+  color: var(--ink-faint);
+}
+
+.clip b { display: block; font-size: 13.5px; color: var(--ink); margin-bottom: 3px; }
+.clip em { font-style: normal; font-size: 12.5px; line-height: 1.55; }
+
 /* The agent's report, as prose rather than a log line */
 
 .report { color: var(--ink-dim); font-size: 14px; line-height: 1.7; max-width: 82ch; }

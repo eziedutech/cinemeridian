@@ -25,15 +25,17 @@ export function CutComparison({
   incoming,
   grid,
   differences,
-  fromTake,
-  toTake,
+  fromLabel,
+  toLabel,
 }: {
   outgoing: string;
   incoming: string;
   grid: Grid;
   differences: GridDifference[];
-  fromTake: number;
-  toTake: number;
+  /** What to call each side. A take number for a visitor's project, a take id
+   *  for the demo scene: the component does not need to know which. */
+  fromLabel: string;
+  toLabel: string;
 }) {
   const marked = (side: "outgoing" | "incoming") =>
     differences.filter((difference) => difference.present_in === side);
@@ -42,11 +44,11 @@ export function CutComparison({
     <div className="cut-compare">
       <div className="cut-heads">
         <span>
-          Take {fromTake}, last frame
+          {fromLabel}, last frame
           <em>what the cut leaves</em>
         </span>
         <span>
-          Take {toTake}, first frame
+          {toLabel}, first frame
           <em>what the cut lands on</em>
         </span>
       </div>

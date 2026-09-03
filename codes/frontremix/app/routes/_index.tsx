@@ -4,6 +4,10 @@ import { useLoaderData, useRevalidator } from "@remix-run/react";
 
 import { AgentTimeline, type TimelineEvent } from "~/components/AgentTimeline";
 import { Info } from "~/components/Info";
+import type { GridDifference } from "~/components/CutComparison";
+import { ResultView, type ResultFact } from "~/components/ResultView";
+import { TryYourself } from "~/components/TryYourself";
+import showcase from "~/showcase.json";
 import { describeCall, describeOutcome } from "~/lib/narrate";
 import { EvidencePair } from "~/components/EvidencePair";
 import { Filmstrip } from "~/components/Filmstrip";
@@ -29,6 +33,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return json({
     editVersion,
     findings,
+    // One complete run, frozen by scripts/build_showcase.py, so the page opens
+    // on a finished piece of work rather than a spinner. The findings beside it
+    // are read live from ClickHouse, because those are cheap and are the thing
+    // a reviewer would actually act on.
+    showcase,
     error: error ?? library.error,
     takes: library.takes,
     framesPerTake: library.framesPerTake,
@@ -39,7 +48,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export default function Console() {
   const data = useLoaderData<typeof loader>();
-  const { editVersion, findings, error, takes, framesPerTake, bucket, apiBase } = data;
+  const { editVersion, findings, error, takes, framesPerTake, bucket, apiBase, showcase } =
+    data;
+  const [tryOpen, setTryOpen] = useState(false);
   const revalidator = useRevalidator();
 
   const [selected, setSelected] = useState<Finding | null>(null);
@@ -263,20 +274,46 @@ export default function Console() {
         onOpen={setOpenTake}
       />
 
-      <div className="columns">
+      {running || events.length > 0 ? (
+        <AgentTimeline events={events} running={running} elapsed={elapsed} />
+      ) : (
+        <ResultView
+          report={showcase.report}
+          findings={findings}
+          comparison={{
+            outgoing: frameUrl(apiBase, bucket, showcase.pair.outgoing),
+            incoming: frameUrl(apiBase, bucket, showcase.pair.incoming),
+            grid: showcase.comparison.grid,
+            // The frozen file is JSON, so its `present_in` is a plain string
+            // until it is told what it actually is.
+            differences: showcase.comparison.differences as GridDifference[],
+            fromLabel: `${showcase.pair.outgoing.setup} ${showcase.pair.outgoing.take}`,
+            toLabel: `${showcase.pair.incoming.setup} ${showcase.pair.incoming.take}`,
+          }}
+          steps={showcase.steps.map(toTimelineEvent).filter(Boolean) as TimelineEvent[]}
+          seconds={showcase.seconds}
+          facts={sceneFacts(showcase, takes.length, findings.length)}
+          selectedId={selected?.finding_id ?? null}
+          onSelectFinding={setSelected}
+          focusTakeId={focusTakeId}
+          onClearFocus={() => setFocusTakeId(null)}
+        />
+      )}
+
+      <section className="panel invite">
         <div>
-          <FindingsMap
-            findings={findings}
-            selectedId={selected?.finding_id ?? null}
-            focusTakeId={focusTakeId}
-            onSelect={setSelected}
-            onClearFocus={() => setFocusTakeId(null)}
-          />
+          <h2 style={{ marginBottom: 6 }}>Now try it on something else</h2>
+          <p className="hint" style={{ margin: 0, maxWidth: "68ch" }}>
+            The same agent, the same database, the same checks, on footage that
+            is not ours. Use the six sample clips or bring your own.
+          </p>
         </div>
-        <div>
-          <AgentTimeline events={events} running={running} elapsed={elapsed} />
-        </div>
-      </div>
+        <button type="button" onClick={() => setTryOpen(true)}>
+          Try it yourself
+        </button>
+      </section>
+
+      {tryOpen ? <TryYourself apiBase={apiBase} onClose={() => setTryOpen(false)} /> : null}
 
       <footer className="disclosure">
         <strong>What is real here.</strong> Sun and moon positions are computed
@@ -412,4 +449,82 @@ function absorb(events: TimelineEvent[], incoming: TimelineEvent): TimelineEvent
 function trim(text: string, limit: number): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > limit ? `${flat.slice(0, limit)}…` : flat;
+}
+
+
+/** Where the API will serve one demo frame from. */
+function frameUrl(
+  base: string,
+  bucket: string,
+  at: { setup: string; take: string; frame: number },
+): string {
+  const uri = `gs://${bucket}/frames/sc14/${at.setup}/${at.take}/f${String(at.frame).padStart(3, "0")}.jpg`;
+  return `${base}/api/frame?uri=${encodeURIComponent(uri)}`;
+}
+
+/** A frozen step, in the shape the timeline renders. */
+function toTimelineEvent(step: Record<string, unknown>): TimelineEvent | null {
+  const at = Number(step.elapsed_ms ?? 0);
+  const name = String(step.name ?? "");
+
+  if (step.kind === "tool_call") {
+    const args = (step.args ?? {}) as Record<string, string>;
+    return {
+      kind: "tool_call",
+      at,
+      name,
+      text: describeCall(name, args),
+      detail: trim(args.query ?? Object.values(args).join(" · "), 600),
+    };
+  }
+  if (step.kind === "tool_result") {
+    return {
+      kind: "tool_result",
+      at,
+      name,
+      ok: step.ok !== false,
+      text: describeOutcome(
+        step.ok !== false,
+        typeof step.rows === "number" ? step.rows : null,
+        String(step.detail ?? ""),
+      ),
+    };
+  }
+  return null;
+}
+
+/** What this scene had to work with, in the shape the shared view renders. */
+function sceneFacts(
+  frozen: typeof showcase,
+  takeCount: number,
+  findingCount: number,
+): ResultFact[] {
+  const light = frozen.comparison.conditions?.outgoing;
+  return [
+    {
+      label: "Takes in the scene",
+      value: String(takeCount),
+      info: "A real scene, shot over twelve days across eight camera setups. The agent's power is that it can ask across all of them at once.",
+    },
+    {
+      label: "Findings filed",
+      value: String(findingCount),
+      info: "Each one written by the agent itself, through MCP, into a queue a person still has to work through.",
+    },
+    {
+      label: "Light in the pair above",
+      value: light ? `${light.regime.replace(/_/g, " ")}, looks like ${light.time_of_day.replace(/_/g, " ")}` : "not read",
+      info: "Read from the frames alone, before any file was opened. Shadows running parallel are the sun; shadows spreading from a point are a lamp.",
+    },
+    {
+      label: "Sun and tide",
+      value: "computed, not stored",
+      info: "Sun and moon positions come from the NOAA solar position algorithm and are real astronomy. The tide is simulated from two harmonic constituents and is not a forecast for any place.",
+    },
+    {
+      label: "This run",
+      value: frozen.built_at + " UTC",
+      info: "One complete run, frozen so the page opens instantly. Re-made by scripts/build_showcase.py whenever the scene changes.",
+    },
+  ];
 }

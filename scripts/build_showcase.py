@@ -119,27 +119,39 @@ def run_agent(api: str) -> tuple[str, list[dict], float]:
     steps: list[dict] = []
     buffer = ""
 
-    for chunk in response.iter_content(chunk_size=None):
-        buffer += chunk.decode("utf-8", errors="replace")
-        frames = re.split(r"\r?\n\r?\n", buffer)
-        buffer = frames.pop()
-        for frame in frames:
-            kind = data = None
-            for line in re.split(r"\r?\n", frame):
-                if line.startswith("event:"):
-                    kind = line[6:].strip()
-                if line.startswith("data:"):
-                    data = (data or "") + line[5:].strip()
-            if not kind or not data:
-                continue
+    # A stream that ends early has still done the work: the agent files its
+    # findings as it goes, and whatever arrived before the connection dropped is
+    # a real record of a real run. Losing all of it to an exception on the last
+    # chunk would be throwing away three minutes over a socket.
+    try:
+        chunks = response.iter_content(chunk_size=None)
+        while True:
             try:
-                payload = json.loads(data)
-            except json.JSONDecodeError:
-                continue
-            if kind == "reasoning":
-                report = payload.get("text", "")
-            elif kind in ("tool_call", "tool_result"):
-                steps.append({"kind": kind, **payload})
+                chunk = next(chunks)
+            except StopIteration:
+                break
+            buffer += chunk.decode("utf-8", errors="replace")
+            frames = re.split(r"\r?\n\r?\n", buffer)
+            buffer = frames.pop()
+            for frame in frames:
+                kind = data = None
+                for line in re.split(r"\r?\n", frame):
+                    if line.startswith("event:"):
+                        kind = line[6:].strip()
+                    if line.startswith("data:"):
+                        data = (data or "") + line[5:].strip()
+                if not kind or not data:
+                    continue
+                try:
+                    payload = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                if kind == "reasoning":
+                    report = payload.get("text", "")
+                elif kind in ("tool_call", "tool_result"):
+                    steps.append({"kind": kind, **payload})
+    except requests.exceptions.ChunkedEncodingError:
+        print("  the stream ended early; keeping what arrived")
 
     return report, steps, time.perf_counter() - started
 

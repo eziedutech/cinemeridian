@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { json, type LoaderFunctionArgs } from "@remix-run/node";
+import { json, type LoaderFunctionArgs, type SerializeFrom } from "@remix-run/node";
 import { useLoaderData, useRevalidator } from "@remix-run/react";
 
 import { AgentTimeline, type TimelineEvent } from "~/components/AgentTimeline";
@@ -285,8 +285,9 @@ export default function Console() {
             incoming: frameUrl(apiBase, bucket, showcase.pair.incoming),
             grid: showcase.comparison.grid,
             // The frozen file is JSON, so its `present_in` is a plain string
-            // until it is told what it actually is.
-            differences: showcase.comparison.differences as GridDifference[],
+            // until it is told what it actually is, and a run that marked
+            // nothing leaves an array TypeScript cannot see a shape in.
+            differences: showcase.comparison.differences as unknown as GridDifference[],
             fromLabel: `${showcase.pair.outgoing.setup} ${showcase.pair.outgoing.take}`,
             toLabel: `${showcase.pair.incoming.setup} ${showcase.pair.incoming.take}`,
           }}
@@ -495,7 +496,9 @@ function toTimelineEvent(step: Record<string, unknown>): TimelineEvent | null {
 
 /** What this scene had to work with, in the shape the shared view renders. */
 function sceneFacts(
-  frozen: typeof showcase,
+  // As it arrives from the loader rather than as it sits on disk: going
+  // through JSON is what changes the empty arrays out from under it.
+  frozen: SerializeFrom<typeof loader>["showcase"],
   takeCount: number,
   findingCount: number,
 ): ResultFact[] {

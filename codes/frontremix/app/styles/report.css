@@ -121,6 +121,25 @@ h2.section {
   border-bottom: 1px solid var(--rule);
 }
 
+/* The answer, and what the run was given */
+
+/* Named for the page rather than for the console: app.css is loaded on
+   every route and has a .verdict of its own, a dark box that belongs beside
+   footage and prints as a slab of ink. */
+.answer { margin-top: 28px; }
+
+/* The agent writes markdown, so the paragraphs arrive as plain prose. This is
+   the one place on the page meant to be read rather than scanned. */
+.answer p { font-size: 15px; line-height: 1.6; margin: 0 0 10px; }
+.answer p:last-child { margin-bottom: 0; }
+.answer strong { font-weight: 700; }
+
+/* The prose component carries the console's own colours, which are set for a
+   dark panel. On paper it is the page that decides. */
+.answer .report { color: var(--ink); max-width: none; }
+
+.run-facts { margin-top: 0; }
+
 /* Findings */
 
 .findings { list-style: none; margin: 0; padding: 0; }
@@ -230,6 +249,7 @@ h2.section {
   .recommendation, .summary { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
   .findings > li { break-inside: avoid; page-break-inside: avoid; }
+  .answer { break-inside: avoid; page-break-inside: avoid; }
   h2.section { break-after: avoid; }
   a { color: inherit; text-decoration: none; }
 }

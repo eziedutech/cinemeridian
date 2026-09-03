@@ -1553,14 +1553,50 @@ async def samples() -> dict[str, Any]:
     Listed rather than hard-coded in the page so the two never drift: the
     clips live in the bucket, and this is the one place that says which of them
     are the worked example.
+
+    Each one also carries the version in the bucket. Frames are immutable once
+    rendered and are cached for a day, but a sample clip is edited from time to
+    time - a capture time written back into it is exactly that - and without a
+    version in the address, everybody who has already seen the old one keeps it
+    for another day. The address changes when the file does, which is what
+    makes the long cache safe rather than a trap.
     """
     settings = get_settings()
     prefix = f"gs://{settings.gcs_asset_bucket}/samples/"
+    versions = await _sample_versions(settings.gcs_asset_bucket)
     return {
         "clips": [
-            {**clip, "uri": prefix + clip["file"]} for clip in SAMPLE_CLIPS
+            {
+                **clip,
+                "uri": prefix + clip["file"],
+                "version": versions.get(clip["file"], ""),
+            }
+            for clip in SAMPLE_CLIPS
         ]
     }
+
+
+async def _sample_versions(bucket_name: str) -> dict[str, str]:
+    """The generation of each sample clip, or nothing if the bucket is quiet.
+
+    A failure here costs a cache that lives longer than it should, not a page
+    that will not load, so it is caught rather than raised.
+    """
+    from google.cloud import storage
+
+    settings = get_settings()
+
+    def _list() -> dict[str, str]:
+        client = storage.Client(project=settings.project_id)
+        found: dict[str, str] = {}
+        for blob in client.bucket(bucket_name).list_blobs(prefix="samples/"):
+            found[blob.name.removeprefix("samples/")] = str(blob.generation)
+        return found
+
+    try:
+        return await asyncio.to_thread(_list)
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 @app.exception_handler(ConfigError)

@@ -1,21 +1,33 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { json, type LinksFunction, type LoaderFunctionArgs } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 
 import { categoryIcon } from "~/components/Icons";
+import { Report as Prose } from "~/components/Report";
+import { shortVersion } from "~/components/ResultView";
 import { fetchFindings, severityRank, type Finding } from "~/lib/api";
+import { takeForReport, type ReportHandoff } from "~/lib/handoff";
 import styles from "~/styles/report.css?url";
 
-const SCENE_ID = "sc14";
+/** The scene the demo lives in, and the default when nothing else is asked
+ *  for. A visitor's own project names its own scene in the query string. */
+const DEMO_SCENE = "sc14";
 
 export const links: LinksFunction = () => [{ rel: "stylesheet", href: styles }];
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const editVersion = url.searchParams.get("edit") ?? "v14";
-  const { findings, error } = await fetchFindings(editVersion, SCENE_ID);
+  // A review of somebody's own clips is a scene of its own, written into the
+  // same tables under its own production. Without this the page could only
+  // ever print the demo, which is the one review nobody needs to take away.
+  const sceneId = url.searchParams.get("scene") ?? DEMO_SCENE;
+  const since = url.searchParams.get("since") ?? "";
+  const { findings, error } = await fetchFindings(editVersion, sceneId, since);
   return json({
     editVersion,
+    sceneId,
+    isDemo: sceneId === DEMO_SCENE,
     findings,
     error,
     generatedAt: new Date().toISOString().replace("T", " ").slice(0, 16),
@@ -41,14 +53,23 @@ const TYPE_LABEL: Record<string, string> = {
  * start time on every deploy for something used once a session.
  */
 export default function Report() {
-  const { editVersion, findings, error, generatedAt } = useLoaderData<typeof loader>();
+  const { editVersion, sceneId, isDemo, findings, error, generatedAt } =
+    useLoaderData<typeof loader>();
+
+  // What the console had and the database does not: the answer written for a
+  // person, and the note of what the run was given. Read after mounting
+  // because it comes from this browser rather than from the server.
+  const [own, setOwn] = useState<ReportHandoff | null>(null);
+  useEffect(() => {
+    setOwn(isDemo ? null : takeForReport(sceneId));
+  }, [isDemo, sceneId]);
 
   // Opened from the console specifically to be printed, so offer the dialogue
   // once the page has settled. Never automatically: a print dialogue that
   // appears before the reader has seen the page is a page nobody trusts.
   useEffect(() => {
-    document.title = `CineMeridian - continuity report - scene ${SCENE_ID} cut ${editVersion}`;
-  }, [editVersion]);
+    document.title = `CineMeridian - continuity report - scene ${sceneId} cut ${editVersion}`;
+  }, [editVersion, sceneId]);
 
   const sorted = [...findings].sort(
     (a, b) => severityRank(a.severity) - severityRank(b.severity),
@@ -72,22 +93,30 @@ export default function Report() {
           Cine<span>Meridian</span> continuity report
         </h1>
         <p className="sub">
-          <em>The Tide Line</em>, scene {SCENE_ID}, cut {editVersion}. Every
-          finding below is a recommendation awaiting human review.
+          {isDemo ? (
+            <>
+              <em>The Tide Line</em>, scene {sceneId}, cut {editVersion}.
+            </>
+          ) : (
+            <>Your own clips, {own ? `${own.takeCount} of them` : "reviewed"}.</>
+          )}{" "}
+          Every finding below is a recommendation awaiting human review.
         </p>
 
         <dl className="meta">
           <div>
             <dt>Production</dt>
-            <dd>prod_tideline</dd>
+            <dd>{isDemo ? "prod_tideline" : (own?.production ?? sceneId)}</dd>
           </div>
           <div>
             <dt>Location</dt>
-            <dd>8.75°N 83.5°W</dd>
+            <dd>
+              {isDemo ? "8.75°N 83.5°W" : (own?.place ?? "not given, so the sun was not used")}
+            </dd>
           </div>
           <div>
-            <dt>Shot</dt>
-            <dd>3 to 15 Dec 2026</dd>
+            <dt>{isDemo ? "Shot" : "Review took"}</dt>
+            <dd>{isDemo ? "3 to 15 Dec 2026" : formatSeconds(own?.seconds ?? 0)}</dd>
           </div>
           <div>
             <dt>Report generated</dt>
@@ -95,6 +124,16 @@ export default function Report() {
           </div>
         </dl>
       </header>
+
+      {/* The answer first, exactly as the console gives it, and from the same
+          function that shortens it there. A report that opens with a list of
+          findings makes the reader assemble the verdict themselves. */}
+      {own?.report ? (
+        <section className="answer">
+          <h2 className="section">The answer</h2>
+          <Prose markdown={shortVersion(own.report)} />
+        </section>
+      ) : null}
 
       <div className="summary">
         <div>
@@ -121,7 +160,8 @@ export default function Report() {
 
       {sorted.length === 0 ? (
         <p className="empty">
-          Nothing recorded for this cut. Run an analysis in the console first.
+          Nothing recorded for this cut, which for a review of two shots that
+          agree is the right answer rather than a missing one.
         </p>
       ) : (
         <ol className="findings">
@@ -132,6 +172,20 @@ export default function Report() {
           ))}
         </ol>
       )}
+
+      {own && own.facts.length > 0 ? (
+        <>
+          <h2 className="section">What this run had to work with</h2>
+          <dl className="meta run-facts">
+            {own.facts.map((fact) => (
+              <div key={fact.label}>
+                <dt>{fact.label}</dt>
+                <dd>{fact.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </>
+      ) : null}
 
       <p className="note">
         <strong>What is real here.</strong> Sun and moon positions are computed
@@ -200,4 +254,11 @@ function FindingCard({ finding }: { finding: Finding }) {
       </div>
     </article>
   );
+}
+
+/** Seconds as a person says them. Matches the console's own wording. */
+function formatSeconds(seconds: number): string {
+  if (seconds <= 0) return "not recorded";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  return `${Math.floor(seconds / 60)}m ${String(Math.round(seconds) % 60).padStart(2, "0")}s`;
 }

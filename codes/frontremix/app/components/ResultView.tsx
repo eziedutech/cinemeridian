@@ -39,6 +39,7 @@ export function ResultView({
   onSelectFinding,
   focusTakeId = null,
   onClearFocus,
+  onExport,
 }: {
   report: string;
   findings: Finding[];
@@ -57,6 +58,9 @@ export function ResultView({
   onSelectFinding?: (finding: Finding) => void;
   focusTakeId?: string | null;
   onClearFocus?: () => void;
+  /** Offered where the answer is, because a review somebody wants to keep is
+   *  one they have just read. */
+  onExport?: () => void;
 }) {
   const [reportOpen, setReportOpen] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
@@ -75,9 +79,16 @@ export function ResultView({
             </Info>
           </h2>
           <Report markdown={shortVersion(report)} />
-          <button type="button" onClick={() => setReportOpen(true)}>
-            Show the full report
-          </button>
+          <div className="form-row">
+            <button type="button" onClick={() => setReportOpen(true)}>
+              Show the full report
+            </button>
+            {onExport ? (
+              <button type="button" className="ghost" onClick={onExport}>
+                Export PDF
+              </button>
+            ) : null}
+          </div>
         </section>
       ) : null}
 

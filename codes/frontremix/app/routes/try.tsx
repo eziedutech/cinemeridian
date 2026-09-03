@@ -8,7 +8,7 @@ import { FilmRoll } from "~/components/FilmRoll";
 import { Info } from "~/components/Info";
 import { ResultView, type ResultFact } from "~/components/ResultView";
 import { FindingsMap } from "~/components/FindingsMap";
-import { apiBase, type Finding } from "~/lib/api";
+import { apiBase, parseRows, type Finding } from "~/lib/api";
 import {
   ClipTooLarge,
   ClipTooLong,
@@ -17,6 +17,7 @@ import {
   type ExtractedFrame,
 } from "~/lib/extract";
 import { composePair, DEFAULT_GRID } from "~/lib/gridpair";
+import { keepForReport } from "~/lib/handoff";
 import { describeCall, describeOutcome } from "~/lib/narrate";
 import { readMp4Metadata, type Mp4Metadata } from "~/lib/mp4meta";
 
@@ -112,6 +113,7 @@ export default function TryYourClips() {
   const [report, setReport] = useState("");
   const [conditions, setConditions] = useState<Array<Conditions | null>>([]);
   const [joins, setJoins] = useState<Join[]>([]);
+  const [runStartedAt, setRunStartedAt] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -138,14 +140,15 @@ export default function TryYourClips() {
     setProject(null);
     setEvents([]);
     setFindings([]);
+    setRunStartedAt("");
     setSceneChanges([]);
     setConditions([]);
     setJoins([]);
     setReport("");
 
-    const startedAt = Date.now();
+    const startedAtMs = Date.now();
     const ticking = window.setInterval(
-      () => setElapsed(Math.round((Date.now() - startedAt) / 1000)),
+      () => setElapsed(Math.round((Date.now() - startedAtMs) / 1000)),
       1000,
     );
 
@@ -168,17 +171,41 @@ export default function TryYourClips() {
       setProject(created);
 
       setStage("The agent is investigating");
-      const runStartedAt = await streamAnalysis(
+      // Kept alongside the state setter because the handoff below needs the
+      // finished text in this scope, and a setter does not hand it back.
+      let written = "";
+      const startedAt = await streamAnalysis(
         apiBase,
         created,
         lat === "" ? null : Number(lat),
         lon === "" ? null : Number(lon),
         setEvents,
-        setReport,
+        (markdown) => {
+          written = markdown;
+          setReport(markdown);
+        },
       );
+      setRunStartedAt(startedAt);
 
       setStage("Collecting what it filed");
-      setFindings(await fetchProjectFindings(apiBase, created, runStartedAt));
+      setFindings(await fetchProjectFindings(apiBase, created, startedAt));
+
+      // The findings are rows anyone can fetch again; the answer and the note
+      // of what the run was given live only in this tab, so the printable page
+      // is handed them here rather than asked to invent them.
+      keepForReport({
+        production: created.production_id,
+        scene: created.scene_id,
+        edit: created.edit_version,
+        report: written,
+        facts: runFacts(created, seen.conditions).map(({ label, value }) => ({
+          label,
+          value,
+        })),
+        seconds: Math.round((Date.now() - startedAtMs) / 1000),
+        takeCount: ordered.length,
+        place: hasPlace ? `${lat}, ${lon}` : null,
+      });
     } catch (caught) {
       setProblem(caught instanceof Error ? caught.message : String(caught));
     } finally {
@@ -203,16 +230,25 @@ export default function TryYourClips() {
       try {
         setLoadingSamples(`Fetching ${wanted.length} sample clips`);
         const listed = await fetch(`${apiBase}/api/samples`).then((r) => r.json());
+        // The version goes in the address rather than a cache header: a clip
+        // that has been re-stamped is a different file, and without this every
+        // browser that has seen the old one keeps it for another day.
         const byFile: Record<string, string> = {};
-        for (const clip of listed.clips ?? []) byFile[clip.file] = clip.uri;
+        for (const clip of listed.clips ?? []) {
+          byFile[clip.file] = clip.version
+            ? `${clip.uri}?v=${encodeURIComponent(clip.version)}`
+            : clip.uri;
+        }
 
         const loaded: Record<number, TakeState> = {};
         for (const [index, file] of wanted.entries()) {
           const uri = byFile[file];
           if (!uri) continue;
           setLoadingSamples(`Fetching sample ${index + 1} of ${wanted.length}`);
+          const [objectUri, version] = uri.split("?v=");
           const response = await fetch(
-            `${apiBase}/api/frame?uri=${encodeURIComponent(uri)}`,
+            `${apiBase}/api/frame?uri=${encodeURIComponent(objectUri)}` +
+              (version ? `&v=${version}` : ""),
           );
           if (!response.ok) continue;
           const blob = await response.blob();
@@ -522,6 +558,18 @@ export default function TryYourClips() {
         steps={events}
         seconds={elapsed}
         facts={runFacts(project, conditions)}
+        onExport={
+          project
+            ? () =>
+                window.open(
+                  `/report?edit=${encodeURIComponent(project.edit_version)}` +
+                    `&scene=${encodeURIComponent(project.scene_id)}` +
+                    (runStartedAt ? `&since=${encodeURIComponent(runStartedAt)}` : ""),
+                  "_blank",
+                  "noopener",
+                )
+            : undefined
+        }
       />
 
       <footer className="disclosure">
@@ -792,19 +840,12 @@ async function fetchProjectFindings(
   );
   if (!response.ok) return [];
 
-  const body = (await response.json()) as {
-    result?: { rows?: unknown[][]; columns?: string[] };
-  };
-  const result = body.result;
-  if (!result?.rows || !result?.columns) return [];
-
-  return result.rows.map((row) => {
-    const finding: Record<string, unknown> = {};
-    result.columns!.forEach((column, index) => {
-      finding[column.split(".").pop() ?? column] = row[index];
-    });
-    return finding as unknown as Finding;
-  });
+  // Through the same reader the rest of the console uses. What comes back is
+  // an MCP envelope with the columns and rows inside a string, not the plain
+  // object this once expected, so the panel stayed empty however many findings
+  // the agent had written.
+  const body = (await response.json()) as { result?: unknown };
+  return parseRows<Finding>(body.result);
 }
 
 /** Run the agent, pushing each step into the timeline as it arrives. */

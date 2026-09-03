@@ -38,10 +38,14 @@ export type Finding = {
 export async function fetchFindings(
   editVersion: string,
   sceneId: string,
+  /** Narrow to one run. Re-analysing a cut appends rather than replaces, so a
+   *  page that reads the whole table shows every run that ever happened. */
+  since = "",
 ): Promise<{ findings: Finding[]; error?: string }> {
-  const url = `${apiBase()}/api/findings?edit_version=${encodeURIComponent(
-    editVersion,
-  )}&scene_id=${encodeURIComponent(sceneId)}`;
+  const url =
+    `${apiBase()}/api/findings?edit_version=${encodeURIComponent(editVersion)}` +
+    `&scene_id=${encodeURIComponent(sceneId)}` +
+    (since ? `&since=${encodeURIComponent(since)}` : "");
 
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });

@@ -70,9 +70,22 @@ export default function Home() {
           </p>
           <p className="poster-sub">Continuity intelligence for the shoot and the cut</p>
         </div>
-        <span className="poster-badge">
-          Agentic Cinema <b>ClickHouse track</b>
-        </span>
+        <div className="poster-head-side">
+          {/* In the header rather than the footer: what a checker misses is the
+              first question anybody asks of one, and a claim about accuracy
+              that hides its own edges is worth less than the edges. */}
+          <button
+            type="button"
+            className="poster-scope"
+            onClick={() => setScopeOpen(true)}
+          >
+            <ScopeIcon />
+            What it catches, and what it does not
+          </button>
+          <span className="poster-badge">
+            Agentic Cinema <b>ClickHouse track</b>
+          </span>
+        </div>
       </header>
 
       <section className="poster-body">
@@ -155,13 +168,6 @@ export default function Home() {
           </span>
           <i className="dot">·</i>
           <span>No login, and nothing you upload is kept beyond a day</span>
-          <i className="dot">·</i>
-          {/* Offered on the poster rather than buried in a page, because the
-              first question anybody asks of a checker is what it misses, and
-              answering it up front is worth more than the claim above it. */}
-          <button type="button" className="fact-link" onClick={() => setScopeOpen(true)}>
-            What it catches, and what it does not
-          </button>
         </p>
       </footer>
 
@@ -176,6 +182,15 @@ export default function Home() {
 
 /* Drawn here rather than pulled from an icon font: three glyphs is not worth a
    dependency, and a font is the first thing to fail on a slow connection. */
+
+function ScopeIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="7.2" cy="7.2" r="4.6" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M10.6 10.6 14 14" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function GoIcon() {
   return (

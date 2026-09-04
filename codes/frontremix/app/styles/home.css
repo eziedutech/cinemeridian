@@ -123,6 +123,49 @@
 
 .poster-badge b { color: var(--sand); font-weight: 600; }
 
+/* The badge says which competition this is; the button beside it says what the
+   tool will not claim. Both belong to the header, and neither should look like
+   a fourth door: the doors are the choice, these two are the frame around it. */
+.poster-head-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.poster-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border: 1px solid rgba(201, 170, 125, 0.3);
+  border-radius: 999px;
+  background: rgba(12, 13, 17, 0.5);
+  backdrop-filter: blur(6px);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  color: rgba(211, 186, 148, 0.9);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+.poster-scope:hover {
+  border-color: rgba(224, 199, 160, 0.6);
+  background: rgba(24, 22, 20, 0.66);
+  color: rgba(240, 224, 199, 0.98);
+}
+
+.poster-scope svg { flex: none; opacity: 0.85; }
+
+/* On a narrow header the badge alone keeps its place; the longer label folds
+   under it rather than pushing the logo off the line. */
+@media (max-width: 1200px) {
+  .poster-scope { font-size: 11px; padding: 6px 12px; }
+}
+
 /* The claims */
 
 .poster-body {
@@ -434,25 +477,7 @@
 .poster-facts span { display: inline-flex; gap: 7px; align-items: baseline; }
 .poster-facts .dot { color: rgba(238, 234, 226, 0.24); }
 
-/* Reads as one more fact until the pointer says otherwise, which is the point:
-   it belongs to that line, and a button drawn as a button there would compete
-   with the three doors above it. */
-.fact-link {
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  letter-spacing: inherit;
-  color: rgba(201, 170, 125, 0.82);
-  border-bottom: 1px solid rgba(201, 170, 125, 0.3);
-  cursor: pointer;
-}
 
-.fact-link:hover {
-  background: none;
-  color: rgba(224, 199, 160, 0.98);
-  border-bottom-color: rgba(224, 199, 160, 0.7);
-}
 
 /* Short screens give the picture back its room by trimming the type first,
    and drop the stagger, which is the first thing to cost height. */
@@ -472,6 +497,7 @@
   .claim, .claim:nth-child(2), .claim:nth-child(3) { --lift: 0px; --tilt: 0deg; }
   .doors { grid-template-columns: 1fr; }
   .poster-head { flex-direction: column; gap: 14px; }
+  .poster-head-side { justify-content: flex-start; }
 }
 
 @media (prefers-reduced-motion: reduce) {

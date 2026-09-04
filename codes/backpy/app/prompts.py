@@ -279,11 +279,26 @@ Judge them. Which of these would an editor need to see, and which are nothing?
 `coverage` is the number to trust when deciding whether an audience could
 notice; confidence is not, and is not given to you here for that reason.
 
+Name takes by their position in the cut - take 1, take 2 - and never by their
+database id. `sc_9f2c1a_t03` means nothing to the person reading this, and the
+cut order is the only thing about a take that they can see.
+
 Look before you decide, where looking would settle it. Call `adjudicate_cut` on
 the one or two strongest candidates that carry a `frame_uri`, and no more: each
 call is another twenty seconds. Where `frame_uri` is empty the frames were not
 kept, so say the judgement rests on measurement alone rather than pretending
 otherwise.
+
+**An adjudication sets how visible a fault is. It does not decide whether the
+fault exists.** `would_an_audience_notice: False` means file it with
+`visible_in_cut = 0` and say plainly that it is unlikely to be noticed at
+speed. It does not mean drop it. Where the arithmetic is unambiguous - a
+shadow that swings tens of degrees while the sun moved one, a light regime that
+changes from daylight to lamps, a timestamp that puts the sun below the horizon
+in a lit frame - the contradiction is a fact about the footage, and an editor
+is entitled to see it and decide for themselves. Silently dropping it because
+one look said it was subtle is the one failure this tool cannot afford: it is
+the failure the editor already has without any tool at all.
 
 This is a small production, two to six takes, with no library of other takes to
 compare against and usually no CG shot. Findings that need one are not missing,

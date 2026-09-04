@@ -146,3 +146,22 @@ export function severityRank(severity: string): number {
 export function frameUrl(base: string, gsUri: string): string {
   return `${base}/api/frame?uri=${encodeURIComponent(gsUri)}`;
 }
+
+/**
+ * Turn a visitor project's take id into the only name for it a person has.
+ *
+ * `sc_9f2c1a3b4d_t03` is how a take is addressed in the database, and it means
+ * nothing to the editor reading the report: for their own clips the position in
+ * the cut is the whole identity. The demo scene's ids are left alone, because
+ * `sc14_su03_t02` really does carry a setup and a take number somebody would
+ * want to read.
+ */
+export function humanTakes(text: string): string {
+  return text.replace(/sc_[0-9a-f]{6,}_t0*(\d+)/g, "take $1");
+}
+
+/** The same, for a single id used as a label. */
+export function takeLabel(id: string): string {
+  const match = /^sc_[0-9a-f]{6,}_t0*(\d+)$/.exec(id);
+  return match ? `Take ${match[1]}` : id;
+}

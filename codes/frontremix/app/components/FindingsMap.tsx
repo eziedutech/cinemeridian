@@ -1,5 +1,5 @@
 import { categoryIcon } from "~/components/Icons";
-import { severityRank, type Finding } from "~/lib/api";
+import { severityRank, takeLabel, type Finding } from "~/lib/api";
 
 type Props = {
   findings: Finding[];
@@ -147,11 +147,11 @@ function FindingCard({
                   </h3>
 
                   <p className="finding-takes">
-                    {finding.take_a}
+                    {takeLabel(finding.take_a)}
                     {finding.take_b ? (
                       <>
                         <span className="arrow">→</span>
-                        {finding.take_b}
+                        {takeLabel(finding.take_b)}
                       </>
                     ) : null}
                     {finding.attribute ? (

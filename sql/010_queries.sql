@@ -196,12 +196,28 @@ ORDER BY r.shot_id, r.render_version;
 -- ──────────────────────────────────────────────────────────────────────────────
 -- F. Every candidate in one statement - the query the front door runs
 --
--- This is what /example and /try actually execute. Four kinds of candidate for
+-- This is what /example and /try actually execute. Seven kinds of candidate for
 -- every join in a cut, unioned into one shape of row, so the agent makes one
 -- trip through MCP rather than one per take. That is the argument of the whole
 -- project in a single statement: a self-join across the pairs is work a
 -- database does in milliseconds and an agent would do badly in thirty round
 -- trips.
+--
+--   sun_moved          how far the sun moved across the join, from capture
+--                      times against the ephemeris. No vision at all.
+--   drift              anything measured on both sides that changed: the tail
+--                      of the outgoing take against the head of the incoming.
+--   runs_backwards     one-way things going the wrong way. Footprints do not
+--                      unwalk themselves between two shots.
+--   slate_vs_sun       the frame disagrees with the clock the file claims,
+--                      which is what an export timestamp looks like.
+--   direction_vs_sun   the measured shadow bearing against the computed sun.
+--   conditions_differ  the light regime changes across the join, and this one
+--                      governs the rest: it decides whether the sun can be
+--                      used as a clock here at all.
+--   one_side_only      measured on one side and missing on the other. Usually
+--                      the model not mentioning it; occasionally a prop that
+--                      vanished across a cut, which nothing else would catch.
 --
 -- Reproduced from codes/backpy/app/tools/candidates.py with example
 -- identifiers in place. A coverage floor of 1% is applied rather than a

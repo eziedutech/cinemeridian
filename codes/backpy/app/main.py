@@ -1050,6 +1050,7 @@ async def ground(
             {
                 "cell": item.cell,
                 "what": item.what,
+                "kind": item.kind,
                 "present_in": item.present_in,
                 "seen_in_reads": item.seen_in_reads,
                 "box": {

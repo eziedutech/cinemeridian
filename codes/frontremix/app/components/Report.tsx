@@ -1,3 +1,5 @@
+import { humanTakes } from "~/lib/api";
+
 /**
  * The agent's report, as the page's answer rather than a line in a log.
  *
@@ -12,7 +14,7 @@
  * constructs, and would have to be trusted with text a model wrote.
  */
 export function Report({ markdown }: { markdown: string }) {
-  return <div className="report">{render(markdown)}</div>;
+  return <div className="report">{render(humanTakes(markdown))}</div>;
 }
 
 function render(markdown: string): JSX.Element[] {

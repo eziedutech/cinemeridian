@@ -42,11 +42,15 @@ CELL_PATTERN = re.compile(r"^([A-H])([1-8])$")
 
 @dataclass(frozen=True)
 class GroundDifference:
-    """One thing that is on the sand in one shot and not the other."""
+    """One thing that is in one shot and not the other."""
 
     cell: str
     what: str
     present_in: str          # "outgoing" or "incoming"
+    #: "living", "movable" or "fixed". A movable thing in a new place is an
+    #: ordinary slip; a fixed one is either a serious fault or proof that the
+    #: two shots are not the same moment.
+    kind: str
     seen_in_reads: int
     #: Where it sits, in fractions of the frame it appears in, so the console
     #: can draw a box straight onto that frame.
@@ -94,23 +98,38 @@ no coordinates, and it is worth making carefully: a frame that looks like late
 afternoon while its file claims four in the morning has caught something no
 amount of metadata would have.
 
-If they are the same place, then look at the ground.
+If they are the same place, then look for what changed.
 
 The camera usually moves between two shots, so the same cell on each side covers
-almost, but not exactly, the same ground. Allow for that.
+almost, but not exactly, the same view. Allow for that.
 
 Ignore entirely: sky, sun, sea, waves, water, the people in shot, and their
 shadows. Those are expected to differ and are not what is being asked about.
 
-Look only at the ground: marks, tracks, footprints, patches, debris, and objects
-lying on it. Report a cell only where something is present on one side and
-absent on the other, or has clearly changed. Do not report a difference you
-would put down to the camera move alone, and do not report one you are unsure
-of: saying nothing is a better answer than a maybe.
+Everything else is in scope: the ground and what lies on it, and equally the
+walls, the furniture, the fittings and the props. A room is as much a place
+where continuity breaks as a beach, and a clock that has moved on a wall is
+exactly the kind of thing nobody notices until it is on a screen.
 
-For each difference give the cell, which side it is present in, what it is, and
-where it sits inside that cell as fractions from 0 to 1, where 0,0 is the top
-left of the cell and 1,1 the bottom right.
+Report a cell only where something is present on one side and absent on the
+other, or has clearly changed. Do not report a difference you would put down to
+the camera move alone, and do not report one you are unsure of: saying nothing
+is a better answer than a maybe.
+
+For each difference give the cell, which side it is present in, what it is,
+where it sits inside that cell as fractions from 0 to 1 where 0,0 is the top
+left of the cell and 1,1 the bottom right, and what kind of thing it is:
+
+  living    a person, an animal, anything that moves on its own
+  movable   a thing somebody could pick up, put down or nudge: a bag, a cup, a
+            chair, litter, a footprint, a tyre track
+  fixed     a thing that is not supposed to move between two shots of one
+            moment: a wall clock, a picture, a light fitting, a doorframe, a
+            fence post, a parked structure
+
+The kind matters more than it looks. A bag that appears is an ordinary
+continuity slip. A fixed thing in a different place is either a much bigger one
+or evidence that these two shots are not the same moment at all.
 
 Answer as JSON:
 {"same_place": true, "place_note": "why, in one sentence",
@@ -120,8 +139,9 @@ Answer as JSON:
 "incoming": {"regime": "...", "shadows_are": "...", "time_of_day": "...",
 "opening_in_frame": true, "opening_is_bright": true, "lamps_visibly_on": false},
 "differences": [{"cell": "C3", "present_in": "incoming", "what": "a dark smudge
-on the sand", "x_in_cell": 0.8, "y_in_cell": 0.7, "width_in_cell": 0.15,
-"height_in_cell": 0.12, "confidence": 0.0}], "verdict": "one sentence"}"""
+on the sand", "kind": "movable", "x_in_cell": 0.8, "y_in_cell": 0.7,
+"width_in_cell": 0.15, "height_in_cell": 0.12, "confidence": 0.0}],
+"verdict": "one sentence"}"""
 
 
 def parse_place(text: str) -> tuple[bool | None, str]:
@@ -191,6 +211,7 @@ def parse_reading(text: str, columns: int, rows: int) -> list[dict[str, Any]]:
                 "row": row,
                 "present_in": side,
                 "what": str(item.get("what", ""))[:200],
+                "kind": _kind(item.get("kind")),
                 "x_in_cell": _fraction(item.get("x_in_cell"), 0.5),
                 "y_in_cell": _fraction(item.get("y_in_cell"), 0.5),
                 "width_in_cell": _fraction(item.get("width_in_cell"), 0.25),
@@ -249,6 +270,7 @@ def agree(
                 cell=cell,
                 what=_clearest(items),
                 present_in=side,
+                kind=_agreed_kind(items),
                 seen_in_reads=len(items),
                 x=round(max(centre_x - width / 2, 0.0), 4),
                 y=round(max(centre_y - height / 2, 0.0), 4),
@@ -371,3 +393,27 @@ def agree_conditions(texts: list[str], side: str) -> FrameConditions | None:
 
 def _flag(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
+
+def _kind(value: Any) -> str:
+    """One of three words, or the safest of them.
+
+    An unknown kind is treated as movable rather than fixed: calling a bag a
+    fixture would inflate a slip into an alarm, and this reads a model's word
+    for it rather than a measurement.
+    """
+    word = str(value or "").strip().lower()
+    return word if word in ("living", "movable", "fixed") else "movable"
+
+def _agreed_kind(items: list[dict[str, Any]]) -> str:
+    """What the readings called it, by majority, and movable when they split.
+
+    A tie should not promote a thing to `fixed`: that word raises the weight of
+    a finding, and raising it on a coin toss is the wrong way round.
+    """
+    counts: dict[str, int] = {}
+    for item in items:
+        word = str(item.get("kind") or "movable")
+        counts[word] = counts.get(word, 0) + 1
+    best = max(counts.values(), default=0)
+    winners = sorted(word for word, count in counts.items() if count == best)
+    return winners[0] if len(winners) == 1 else "movable"

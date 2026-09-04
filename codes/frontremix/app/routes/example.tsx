@@ -299,10 +299,7 @@ export default function Example() {
         opens without waiting. Sun and moon positions are computed with the NOAA
         solar position algorithm and are real astronomy. All footage is
         synthetic and self-made. The agent only ever recommends: it does not
-        modify an edit, submit a render, or mark its own findings reviewed.{" "}
-        <Link to="/scene">
-          The scene the database was built on is still here.
-        </Link>
+        modify an edit, submit a render, or mark its own findings reviewed.
       </footer>
     </div>
   );

@@ -1,41 +1,41 @@
 {
   "project": {
-    "production_id": "try_cd394deae0",
-    "scene_id": "sc_cd394deae0",
-    "edit_version": "v_cd394deae0",
+    "production_id": "try_82e4a888da",
+    "scene_id": "sc_82e4a888da",
+    "edit_version": "v_82e4a888da",
     "takes": [
       {
-        "take_id": "sc_cd394deae0_t01",
+        "take_id": "sc_82e4a888da_t01",
         "cut_position": 1,
         "recorded_at": "2026-09-03 21:00:00",
         "observations": 8
       },
       {
-        "take_id": "sc_cd394deae0_t02",
+        "take_id": "sc_82e4a888da_t02",
         "cut_position": 2,
         "recorded_at": "2026-09-03 21:00:00",
-        "observations": 10
+        "observations": 9
       },
       {
-        "take_id": "sc_cd394deae0_t03",
+        "take_id": "sc_82e4a888da_t03",
         "cut_position": 3,
         "recorded_at": "2026-09-03 21:35:00",
         "observations": 8
       },
       {
-        "take_id": "sc_cd394deae0_t04",
+        "take_id": "sc_82e4a888da_t04",
         "cut_position": 4,
         "recorded_at": "2026-09-03 21:40:00",
-        "observations": 9
+        "observations": 7
       },
       {
-        "take_id": "sc_cd394deae0_t05",
+        "take_id": "sc_82e4a888da_t05",
         "cut_position": 5,
         "recorded_at": "2026-09-03 20:00:00",
         "observations": 6
       },
       {
-        "take_id": "sc_cd394deae0_t06",
+        "take_id": "sc_82e4a888da_t06",
         "cut_position": 6,
         "recorded_at": "2026-09-04 02:00:00",
         "observations": 0
@@ -49,9 +49,9 @@
     "longitude": -83.5,
     "model": "gemini-3.7-flash"
   },
-  "report": "## The short version\n\nThis edit has major physical continuity breaks that will immediately catch an audience's eye. Across one cut, a prominent subject shadow flips across the frame by 124 deg, while another cut jumps backward in time by over an hour and suddenly transitions directly from late afternoon daylight into a nighttime artificial lighting setup. These cuts require re-ordering, visual effects cleanup, or scene transitions before final assembly.\n\n## What was found\n\n### Cast shadow direction flip across cut 3 to 4\n* **Observed Change:** The primary shadow direction swings by 124 deg (from 244 deg at the tail of Take 03 to 120 deg at the head of Take 04).\n* **Physical Expectation:** With only 5 minutes between captures (21:35 UTC to 21:40 UTC), solar azimuth moved by only 0.1 deg (273.4 deg to 273.5 deg); cast shadows should remain oriented near 244 deg.\n* **Visual Review:** In this wide static shot, the prominent foreground cast shadow occupies a large area of the sand, flipping completely from bottom-left to bottom-right across the cut.\n* **Recommendation:** Re-order or replace Take 04, or flip/re-light the cast shadow in post-production.\n\n### Direct jump from daylight to night lighting across cut 5 to 6\n* **Observed Change:** The scene jumps from natural direct sunlight (Take 05, filmed at 20:00 UTC with sun elevation 53.7 deg) to artificial night lighting (Take 06, filmed at 02:00 UTC with sun elevation -34.5 deg, interior lamps turned on, and radiating point shadows).\n* **Physical Expectation:** A continuous scene cannot bridge a 6-hour time gap without visible temporal progression.\n* **Visual Review:** Room lighting switches abruptly from bright daylight entering an opening to dark room conditions illuminated by artificial point lamps.\n* **Recommendation:** Insert a scene transition/time-lapse between Take 05 and Take 06, or replace Take 06 with a matching daytime take.\n\n### Solar altitude and chronological jump across cut 4 to 5\n* **Observed Change:** Solar elevation jumps upward from 29.0 deg in Take 04 to 53.7 deg in Take 05, compressing shadow length ratios from 1.6x–1.8x down to ~0.7x.\n* **Physical Expectation:** Solar elevation and shadow lengths should progress monotonically forward throughout the scene rather than jumping backward 100 minutes in capture time (21:40 UTC back to 20:00 UTC).\n* **Visual Review:** Direct cut from late afternoon long shadows back to high midday lighting with a bright exterior opening.\n* **Recommendation:** Re-sequence Take 05 earlier in the cut (prior to Take 01/Take 04) to maintain consistent solar progression.\n\n## What was ruled out and why\n\n* **Take 01 -> Take 02 drift and sun movement:** A 3 deg shadow swing and minor length differences across 0-minute gap with low frame coverage (4.5%) fall well within framing tolerances.\n* **Take 02 -> Take 03 shadow drift:** A 3 deg directional change and minor length ratio adjustment (1.4x to 1.3x) across 35 minutes are imperceptible at speed.\n* **Take 05 -> Take 06 missing shadow readings (`one_side_only`):** Shadow readings were absent in Take 06 because the shot took place at night under artificial illumination where solar shadows do not exist.\n* **Take 05 -> Take 06 solar ephemeris candidates (`sun_moved`):** Physics mismatches based on sun position are invalid once the scene switches to an artificial night lighting regime.\n* **Per-take slate vs. sun deviations:** Individual minor slate variations on takes 01 through 05 represented normal frame measurement noise rather than systematic slate errors.\n\n## What could not be checked\n\nNo production metadata beyond latitude, longitude, and clip timestamps was provided; on-set weather telemetry (wind velocity, humidity, barometric pressure), CG light rig parameters, and alternate take libraries were not available and were omitted from evaluation.\n\n---\n\n### Verification Summary\n* Candidates evaluated: 62\n* Findings recorded: 3\n* Verification query: `SELECT count() FROM cinemeridian.continuity_findings WHERE edit_version = 'v_cd394deae0' AND scene_id = 'sc_cd394deae0'` returned **`3`**.",
-  "startedAt": "2026-09-04 05:32:26",
-  "seconds": 461,
+  "report": "## The short version\n\nAcross the six-shot sequence, one glaring continuity break occurs at the cut from Take 3 to Take 4, where a subject's primary cast shadow abruptly flips across the frame by 120 deg and a prop beside her vanishes. The remaining cuts transition smoothly across natural afternoon solar progression or represent clean location and lighting changes from exterior golden hour to interior morning and evening setups. You should plan a cutaway or adjust the edit at the Take 3 to Take 4 join.\n\n## What was found\n\n### Cast Shadow Direction Reversal and Missing Prop Across Take 3 -> Take 4\n\n* **What changes and by how much:** Across the cut from Take 3 to Take 4, the primary cast shadow direction swings by 120 deg (from 240 deg at the tail of Take 3 to 120 deg at the head of Take 4).\n* **What physics expected:** Over the 5-minute capture interval between takes (21:35:05 to 21:40:00 UTC), solar azimuth moved by only 0.1 deg (from 273.4 deg to 273.5 deg, solar elevation 30.2 deg to 29.0 deg). The expected shadow direction swing under continuous camera orientation was less than 0.1 deg.\n* **What was seen in the frames:** In wide-angle framing across open sand (4.5% to 5.2% frame coverage), the subject's long cast shadow flips completely from pointing toward the bottom left to pointing toward the bottom right. Additionally, a bag placed beside the subject's feet in Take 3 disappears in Take 4.\n* **Recommendation:** Insert a cutaway shot, flip the spatial orientation of the setup, or replace Take 4 with an alternate take matching the established sun line.\n\n## What was ruled out and why\n\n* **Take 1 -> Take 2 shadow drift (3 deg swing, 0 min gap):** Ruled out because the 3 deg variation is within normal measurement tolerance and visual action continuity across identical 38.9 deg solar elevation.\n* **Take 2 -> Take 3 solar progression (35 min gap):** Ruled out because the lengthening of the shadow from 1.24x to 1.72x and minor 1 deg directional drift faithfully track the sun descending from 38.9 deg to 30.2 deg elevation.\n* **Take 4 -> Take 5 environment jump (100 min capture gap):** Ruled out as an actionable continuity flaw because visual adjudication confirmed a full cut from an exterior beach scene at golden hour to an interior room with direct window sunlight, which reads naturally as an intended scene transition.\n* **Take 5 -> Take 6 lighting change (360 min gap):** Ruled out because Take 6 transitions to an artificial interior lighting regime (lamps active, radiating shadows, sun at -34.5 deg), rendering solar ephemeris comparisons inapplicable.\n* **Take 5 -> Take 6 single-sided shadow candidates:** Ruled out because single-sided missing observations across an artificial night setup represent a regime change rather than a physical mismatch.\n* **Slate-versus-sun calculations on individual takes:** Ruled out because measured shadow lengths and angles on all takes closely match theoretical cotangent values and solar positions for their logged UTC capture stamps, confirming slate timestamps are physically accurate.\n\n## What could not be checked\n\nNo environmental telemetry (anemometer wind speeds, humidity, simulated tide gauges, or on-set lux meters) or CG render configurations were provided with the footage, so atmospheric drift, physical tide levels, and digital asset versioning checks did not run.\n\n---\n\n### Audit & Verification\n\n* **Candidates evaluated:** 37\n* **Findings recorded:** 1\n* **Database verification:** `SELECT count() FROM cinemeridian.continuity_findings WHERE edit_version = 'v_82e4a888da' AND scene_id = 'sc_82e4a888da'` returned **1**.",
+  "startedAt": "2026-09-04 07:52:31",
+  "seconds": 243,
   "place": {
     "latitude": 8.75,
     "longitude": -83.5
@@ -62,7 +62,7 @@
       "shadows_are": "parallel",
       "time_of_day": "golden_hour",
       "opening_in_frame": false,
-      "opening_is_bright": null,
+      "opening_is_bright": false,
       "lamps_visibly_on": false,
       "sun_is_usable": true
     },
@@ -71,7 +71,7 @@
       "shadows_are": "parallel",
       "time_of_day": "golden_hour",
       "opening_in_frame": false,
-      "opening_is_bright": null,
+      "opening_is_bright": false,
       "lamps_visibly_on": false,
       "sun_is_usable": true
     },
@@ -96,7 +96,7 @@
     {
       "regime": "sun_direct",
       "shadows_are": "parallel",
-      "time_of_day": "golden_hour",
+      "time_of_day": "morning",
       "opening_in_frame": true,
       "opening_is_bright": true,
       "lamps_visibly_on": false,
@@ -116,7 +116,7 @@
     {
       "from": 4,
       "to": 5,
-      "note": "The outgoing frame is an outdoor sandy beach, while the incoming frame is an indoor room with wooden floors."
+      "note": "The outgoing shot is an outdoor beach setting facing the ocean, whereas the incoming shot is an empty indoor room with a wooden floor."
     }
   ],
   "joins": [
@@ -139,14 +139,15 @@
       "differences": [
         {
           "cell": "C3",
-          "what": "a handbag on the sand",
+          "what": "a small handbag on the sand near the woman's feet",
+          "kind": "movable",
           "present_in": "incoming",
           "seen_in_reads": 1,
           "box": {
-            "x": 0.6525,
-            "y": 0.6667,
-            "width": 0.045,
-            "height": 0.0533
+            "x": 0.535,
+            "y": 0.6567,
+            "width": 0.02,
+            "height": 0.0333
           }
         }
       ]
@@ -161,14 +162,15 @@
       "differences": [
         {
           "cell": "C2",
-          "what": "a small bag or pouch on the sand beside the person's feet",
+          "what": "a small bag or pouch resting on the sand next to the woman's feet",
+          "kind": "movable",
           "present_in": "outgoing",
           "seen_in_reads": 1,
           "box": {
-            "x": 0.7225,
-            "y": 0.63,
-            "width": 0.02,
-            "height": 0.0267
+            "x": 0.7,
+            "y": 0.6167,
+            "width": 0.025,
+            "height": 0.0333
           }
         }
       ]
@@ -191,27 +193,42 @@
       },
       "differences": [
         {
-          "cell": "A3",
-          "what": "base of standing floor lamp",
+          "cell": "A2",
+          "what": "standing floor lamp",
+          "kind": "movable",
           "present_in": "incoming",
           "seen_in_reads": 1,
           "box": {
-            "x": 0.115,
-            "y": 0.68,
-            "width": 0.045,
-            "height": 0.04
+            "x": 0.0688,
+            "y": 0.375,
+            "width": 0.0875,
+            "height": 0.2833
           }
         },
         {
-          "cell": "D3",
-          "what": "base of standing floor lamp",
+          "cell": "B2",
+          "what": "standing floor lamp near the wall corner",
+          "kind": "movable",
           "present_in": "incoming",
           "seen_in_reads": 1,
           "box": {
-            "x": 0.8725,
-            "y": 0.68,
-            "width": 0.045,
-            "height": 0.04
+            "x": 0.4625,
+            "y": 0.3667,
+            "width": 0.05,
+            "height": 0.2667
+          }
+        },
+        {
+          "cell": "D2",
+          "what": "standing floor lamp along the right wall",
+          "kind": "movable",
+          "present_in": "incoming",
+          "seen_in_reads": 1,
+          "box": {
+            "x": 0.925,
+            "y": 0.375,
+            "width": 0.075,
+            "height": 0.2833
           }
         }
       ]
@@ -272,110 +289,68 @@
       "kind": "started",
       "at": 0,
       "text": "reviewing your cut",
-      "detail": "2026-09-04 05:32:26"
+      "detail": "2026-09-04 07:52:31"
     },
     {
       "kind": "tool_call",
-      "at": 9380,
+      "at": 12884,
       "name": "adjudicate_cut",
       "text": "Asking Gemini to look at both frames and judge the cut, on the primary shadow",
-      "detail": "gs://cinemeridian-assets/samples/example/t04_head.jpg · direction_deg · primary_shadow · Shadow direction should track sun azimuth (273.4° to 273.5°), remaining stable around 244° across a 5-minute gap. · Shadow direction swung 124° (from 244° to 120°). · gs://cinemeridian-assets/samples/example/t03_tail.jpg",
+      "detail": "direction_deg · primary_shadow · 0.1 deg sun azimuth change · gs://cinemeridian-assets/samples/example/t04_head.jpg · gs://cinemeridian-assets/samples/example/t03_tail.jpg · 120 deg swing (240 deg to 120 deg)",
       "ok": true,
       "outcome": "would_an_audience_notice: True",
-      "took": 52931
+      "took": 5108
     },
     {
       "kind": "tool_call",
-      "at": 71949,
+      "at": 21830,
+      "name": "adjudicate_cut",
+      "text": "Asking Gemini to look at both frames and judge the cut, on the lighting",
+      "detail": "continuous lighting (captured 100 minutes earlier, sun 53.7 deg vs 29.0 deg) · time_of_day · golden_hour to morning sun (opening visible and bright) · gs://cinemeridian-assets/samples/example/t05_head.jpg · gs://cinemeridian-assets/samples/example/t04_tail.jpg · lighting",
+      "ok": true,
+      "outcome": "would_an_audience_notice: False",
+      "took": 6332
+    },
+    {
+      "kind": "tool_call",
+      "at": 42676,
       "name": "record_finding",
       "text": "Recording a finding in the review queue: cross take drift",
-      "detail": "sc_cd394deae0 · In this wide static shot, the prominent foreground cast shadow flips completely from bottom-left to bottom-right across the cut, which is immediately jarring. · Re-order or replace take t04, or flip/re-light the cast shadow in post-production to match the established solar azimuth. · sc_cd394deae0_t04 · sc_cd394deae0_t03 · high · Shadow direction should stay within ~1° (near 244°) across the 5-minute interval between takes. · cross_take_drift · Shadow direction flipped by 124° (from 244° in t03 to 120° in t04). · v_cd394deae0 · primary_shadow · True · direction_deg",
+      "detail": "The woman's long cast shadow flips completely from pointing toward the bottom left to the bottom right, and the bag beside her feet disappears in the open sand wide shot. · v_82e4a888da · 120 deg shadow direction swing (240 deg to 120 deg) · Re-order takes, adjust camera angle setup, or use a cutaway to mask the 120-degree shadow flip and disappearing prop. · high · sc_82e4a888da_t03 · direction_deg · cross_take_drift · 0.1 deg sun azimuth change over 5 minutes · sc_82e4a888da_t04 · True · sc_82e4a888da · primary_shadow",
       "ok": true,
       "outcome": "recorded: True",
-      "took": 204
+      "took": 145
     },
     {
       "kind": "tool_call",
-      "at": 79745,
-      "name": "record_finding",
-      "text": "Recording a finding in the review queue: cross take drift",
-      "detail": "sc_cd394deae0_t05 · v_cd394deae0 · lighting · sc_cd394deae0_t06 · Lighting regime shifted from sun_direct (golden_hour, sun at 53.7°) in t05 to artificial (night, lamps on, sun at -34.5°) in t06 across a 6-hour capture gap. · sc_cd394deae0 · high · True · Direct lighting regime jump from direct sunlight with parallel shadows to nighttime artificial point lighting with lamps turned on. · cross_take_drift · regime · Insert a temporal transition or time-lapse between t05 and t06, or replace t06 with a matching daytime take. · Continuous scene lighting within an edit cut; daylight shots cannot cut…",
-      "ok": true,
-      "outcome": "recorded: True",
-      "took": 118
-    },
-    {
-      "kind": "tool_call",
-      "at": 121878,
-      "name": "record_finding",
-      "text": "Recording a finding in the review queue: cross take drift",
-      "detail": "medium · sun · Significant jump in solar altitude and shadow length ratio (1.8x to 0.74x) caused by cutting backwards 100 minutes in capture time. · v_cd394deae0 · elevation_deg · Sun elevation jumps from 29.0° in t04 to 53.7° in t05 (shadow length ratio contracts from ~1.6–1.8x to ~0.7x). · Re-order take t05 before take t01/t04 in the edit sequence to restore chronological solar progression, or adjust shadow lengths in grading/VFX. · True · cross_take_drift · sc_cd394deae0_t05 · sc_cd394deae0 · Sun elevation and shadow lengths should evolve monotonically forward in time without sudden midday-…",
-      "ok": true,
-      "outcome": "recorded: True",
-      "took": 163
-    },
-    {
-      "kind": "tool_call",
-      "at": 124463,
+      "at": 48106,
       "name": "run_query",
       "text": "Counting the rows in the review queue",
-      "detail": "SELECT count() FROM cinemeridian.continuity_findings WHERE edit_version = 'v_cd394deae0' AND scene_id = 'sc_cd394deae0'",
+      "detail": "SELECT count() FROM cinemeridian.continuity_findings WHERE edit_version = 'v_82e4a888da' AND scene_id = 'sc_82e4a888da'",
       "ok": true,
       "outcome": "1 row",
-      "took": 18
+      "took": 15
     },
     {
       "kind": "done",
-      "at": 141388,
-      "text": "finished in 141.4s"
+      "at": 60843,
+      "text": "finished in 60.8s"
     }
   ],
   "findings": [
     {
-      "finding_id": "3a71e64c18e727ea",
-      "created_at": "2026-09-04 05:34:27.916",
-      "finding_type": "cross_take_drift",
-      "severity": "medium",
-      "take_a": "sc_cd394deae0_t04",
-      "take_b": "sc_cd394deae0_t05",
-      "entity": "sun",
-      "attribute": "elevation_deg",
-      "observed_delta": "Sun elevation jumps from 29.0° in t04 to 53.7° in t05 (shadow length ratio contracts from ~1.6–1.8x to ~0.7x).",
-      "computed_expectation": "Sun elevation and shadow lengths should evolve monotonically forward in time without sudden midday-to-late-afternoon jumps.",
-      "gemini_verdict": "Significant jump in solar altitude and shadow length ratio (1.8x to 0.74x) caused by cutting backwards 100 minutes in capture time.",
-      "recommendation": "Re-order take t05 before take t01/t04 in the edit sequence to restore chronological solar progression, or adjust shadow lengths in grading/VFX.",
-      "visible_in_cut": 1,
-      "human_reviewed": 0
-    },
-    {
-      "finding_id": "5783cb0dd01b619c",
-      "created_at": "2026-09-04 05:33:45.783",
+      "finding_id": "7dca0a37fe672b6e",
+      "created_at": "2026-09-04 07:53:14.440",
       "finding_type": "cross_take_drift",
       "severity": "high",
-      "take_a": "sc_cd394deae0_t05",
-      "take_b": "sc_cd394deae0_t06",
-      "entity": "lighting",
-      "attribute": "regime",
-      "observed_delta": "Lighting regime shifted from sun_direct (golden_hour, sun at 53.7°) in t05 to artificial (night, lamps on, sun at -34.5°) in t06 across a 6-hour capture gap.",
-      "computed_expectation": "Continuous scene lighting within an edit cut; daylight shots cannot cut directly into nighttime artificial illumination.",
-      "gemini_verdict": "Direct lighting regime jump from direct sunlight with parallel shadows to nighttime artificial point lighting with lamps turned on.",
-      "recommendation": "Insert a temporal transition or time-lapse between t05 and t06, or replace t06 with a matching daytime take.",
-      "visible_in_cut": 1,
-      "human_reviewed": 0
-    },
-    {
-      "finding_id": "0a3f6ed9d79586c2",
-      "created_at": "2026-09-04 05:33:37.987",
-      "finding_type": "cross_take_drift",
-      "severity": "high",
-      "take_a": "sc_cd394deae0_t03",
-      "take_b": "sc_cd394deae0_t04",
+      "take_a": "sc_82e4a888da_t03",
+      "take_b": "sc_82e4a888da_t04",
       "entity": "primary_shadow",
       "attribute": "direction_deg",
-      "observed_delta": "Shadow direction flipped by 124° (from 244° in t03 to 120° in t04).",
-      "computed_expectation": "Shadow direction should stay within ~1° (near 244°) across the 5-minute interval between takes.",
-      "gemini_verdict": "In this wide static shot, the prominent foreground cast shadow flips completely from bottom-left to bottom-right across the cut, which is immediately jarring.",
-      "recommendation": "Re-order or replace take t04, or flip/re-light the cast shadow in post-production to match the established solar azimuth.",
+      "observed_delta": "120 deg shadow direction swing (240 deg to 120 deg)",
+      "computed_expectation": "0.1 deg sun azimuth change over 5 minutes",
+      "gemini_verdict": "The woman's long cast shadow flips completely from pointing toward the bottom left to the bottom right, and the bag beside her feet disappears in the open sand wide shot.",
+      "recommendation": "Re-order takes, adjust camera angle setup, or use a cutaway to mask the 120-degree shadow flip and disappearing prop.",
       "visible_in_cut": 1,
       "human_reviewed": 0
     }

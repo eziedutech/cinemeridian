@@ -14,11 +14,22 @@
 export type GridDifference = {
   cell: string;
   what: string;
+  /** What sort of thing it is. A bag left on the sand is an ordinary slip; a
+   *  fixture in a new place is either a serious one or proof that these two
+   *  shots are not the same moment. */
+  kind?: "living" | "movable" | "fixed";
   present_in: "outgoing" | "incoming";
   box: { x: number; y: number; width: number; height: number };
 };
 
 export type Grid = { columns: number; rows: number };
+
+/** Said in the words an editor would use, not the words the model returns. */
+const KIND_LABEL: Record<string, string> = {
+  living: "someone",
+  movable: "movable",
+  fixed: "should not move",
+};
 
 export function CutComparison({
   outgoing,
@@ -91,6 +102,11 @@ export function CutComparison({
                 {difference.cell}
               </span>
               {difference.what}
+              {difference.kind ? (
+                <b className={`kind kind-${difference.kind}`}>
+                  {KIND_LABEL[difference.kind]}
+                </b>
+              ) : null}
               <em>
                 {difference.present_in === "incoming"
                   ? "appears after the cut"
@@ -101,7 +117,7 @@ export function CutComparison({
         </ul>
       ) : (
         <p className="hint" style={{ marginBottom: 0 }}>
-          Nothing on the ground was called different by more than one reading.
+          Nothing in either frame was called different by more than one reading.
           Small marks and anything outside the frame are beyond this.
         </p>
       )}

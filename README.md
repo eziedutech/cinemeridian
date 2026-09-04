@@ -180,7 +180,7 @@ read a contiguous range.
 
 The queries are in [`sql/010_queries.sql`](sql/010_queries.sql), and that file
 says which path uses which. **F** is the one the front door runs: every
-candidate for every join in a cut, four kinds of them, in a single statement, so
+candidate for every join in a cut, seven kinds of them, in a single statement, so
 the agent makes one trip through MCP instead of one per take. **A to E** are the
 starting points for the thirty-take scene, which has an edit list and two cut
 versions to compare.

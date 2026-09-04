@@ -34,7 +34,7 @@ MIN_COVERAGE_PCT = 1.0
 
 
 def candidate_query(*, edit_version: str, scene_id: str, production_id: str) -> str:
-    """One statement, four kinds of candidate, one shape of row.
+    """One statement, seven kinds of candidate, one shape of row.
 
     Written as a union rather than four queries so the whole thing is a single
     trip through MCP. Every column is aliased explicitly: this project has

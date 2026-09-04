@@ -1156,6 +1156,24 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   color: var(--ink-dim);
 }
 .cut-legend li:last-child { border-bottom: 0; }
+
+/* What sort of thing changed. `fixed` is the one worth colouring: a bag on the
+   sand is an ordinary slip, a fixture in a new place is either a serious fault
+   or evidence the two shots are not the same moment. */
+.cut-legend .kind {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--line);
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.cut-legend .kind-fixed { background: color-mix(in srgb, var(--alarm) 26%, var(--line)); color: var(--ink); }
+.cut-legend .kind-living { background: color-mix(in srgb, var(--sea) 24%, var(--line)); color: var(--ink); }
 .cut-legend li > span {
   display: inline-block;
   min-width: 34px;

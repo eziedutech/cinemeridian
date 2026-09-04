@@ -141,11 +141,11 @@ export default function Home() {
 
         <p className="poster-facts">
           <span>
-            <b>Gemini 3.7 Flash</b> reads the frames
+            <b>Agentic AI</b> reads the frames
           </span>
           <i className="dot">·</i>
           <span>
-            <b>ClickHouse</b> queried at runtime through MCP
+            <b>A real-time analytics database</b> queried at runtime through MCP
           </span>
           <i className="dot">·</i>
           <span>

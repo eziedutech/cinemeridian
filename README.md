@@ -148,13 +148,13 @@ user, which never has a model attached to it.
 │                                                              │
 │   cinemeridian_continuity_agent  ·  Gemini 3.7 Flash         │
 │     MCPToolset ─────────────────────────────► mcp-clickhouse │
-│     observe_frame / adjudicate_cut ──────────► Vertex AI     │
+│     observe_frame / adjudicate_cut ──────────► Gemini API    │
 │     compute_light_rig / find_pickup_windows ─► ephemeris.py  │
 │     record_finding ──────────────────────────► mcp-clickhouse│
 │                                                              │
 │   ephemeris.py - sun, moon, tide. Pure maths, no deps.       │
 └──────────┬────────────────────────────────┬──────────────────┘
-           │ MCP (stdio)                    │ Vertex AI
+           │ MCP (stdio)                    │ Gemini API
 ┌──────────▼─────────────┐   ┌──────────────▼──────────────────┐
 │  ClickHouse Cloud      │   │  Gemini 3.7 Flash               │
 │  7 tables              │   │  perception + adjudication      │
@@ -232,8 +232,9 @@ assets/
 
 ## Running locally
 
-Requires Python 3.12+, `uv`, Node 20+, a Google Cloud project with Vertex AI
-enabled, and a ClickHouse Cloud service in the same region (`us-central1`).
+Requires Python 3.12+, `uv`, Node 20+, a Google Cloud project with the Gemini
+Enterprise Agent Platform (formerly Vertex AI) enabled, and a ClickHouse Cloud
+service in the same region (`us-central1`).
 
 ```bash
 python -m pip install -r codes/backpy/requirements-dev.txt
@@ -328,10 +329,10 @@ never committed under any circumstances.
 
 | Variable | Purpose |
 |---|---|
-| `GOOGLE_CLOUD_PROJECT` | project that owns Vertex AI and the asset bucket |
+| `GOOGLE_CLOUD_PROJECT` | project that owns the models and the asset bucket |
 | `GOOGLE_CLOUD_LOCATION` | `us-central1`, matching ClickHouse and the bucket |
 | `CINEMERIDIAN_GEMINI_LOCATION` | `us`. Gemini 3 is not served from a plain regional endpoint |
-| `GOOGLE_GENAI_USE_VERTEXAI` | `true` - Vertex AI, not the developer API |
+| `GOOGLE_GENAI_USE_VERTEXAI` | `true` - the enterprise platform, not the developer API. The variable keeps its old name, as does the SDK |
 | `GOOGLE_CLOUD_QUOTA_PROJECT` | set explicitly, so this project does not depend on the machine-wide ADC quota project that every local project shares |
 | `GCS_ASSET_BUCKET` | where synthetic frames live |
 | `CINEMERIDIAN_MODEL` | `gemini-3.7-flash` |
@@ -351,7 +352,7 @@ contradiction the agent never sees.
 ## What is real and what is simulated
 
 - All footage is **synthetic and self-made**. The base plates come from Gemini
-  image models on Vertex AI, generated under flat overcast light; every variable
+  image models on the same platform, generated under flat overcast light; every variable
   in dispute - shadow direction and length, colour temperature, footprint count,
   waterline - is composited on afterwards at a value we chose. No film or
   broadcast material is used anywhere.
@@ -376,13 +377,19 @@ four outcomes in one cut:
 |---|---|
 | Take 1 → 2 | nothing found. The same take continued; the control that should be silent |
 | Take 2 → 3 | one cell marked on the grid, which the agent read and would not file |
-| Take 3 → 4 | one finding filed: the shadow flips 124° while the sun moves 1.1° |
+| Take 3 → 4 | **one finding filed**: the shadow swings 120° while the sun moves 1° |
 | Take 4 → 5 | a scene change. Beach to room, so continuity rules do not apply |
-| Take 5 → 6 | one finding filed: sunlit room cut to the same room after dark |
+| Take 5 → 6 | three cells marked, read as an intended day-to-night transition |
 
-Six takes, five joins, three findings, seven minutes forty-one seconds, on
-`gemini-3.7-flash`. The clips carry their own capture times, and a position was
+Six takes, five joins, one finding filed, four minutes three seconds, on
+`gemini-3.7-flash`. The clips carry their own capture times and a position was
 given, so the sun checks and the clock checks both ran.
+
+Runs vary, and that is worth saying rather than hiding: an earlier recording of
+the same six clips filed three findings, adding the day-to-night join and a sun
+elevation jump. What does not vary is the arithmetic underneath. The shadow
+measured 244° in take 3 and 120° in take 4 in every run we have logged, and the
+sun moved one degree between them.
 
 ### The thirty-take scene
 
@@ -408,6 +415,21 @@ Numbers worth quoting, all measured rather than estimated:
 | MCP startup on Cloud Run | **2.2 s** |
 | Data in ClickHouse | 108,000 ephemeris rows, 270,000 telemetry rows, 122 observations |
 | The pickup window it finds | **5 minutes a day, for 8 days**, five weeks out |
+
+**An adjudication says how visible a fault is, not whether it happened.** This
+was a real bug, found two days before submission. A run declared a six-shot cut
+clean: the agent had measured the 120° shadow swing, looked at the two frames,
+been told an audience would not notice, and dropped the finding. The rule is now
+explicit in the instruction. `would_an_audience_notice: False` files the finding
+with `visible_in_cut = 0` and says it is subtle; it never cancels a contradiction
+whose arithmetic is unambiguous. Silently dropping one is the exact failure an
+editor already has without any tool.
+
+**What changed, and what sort of thing it was.** The grid pass reports the class
+of each difference alongside it: someone, something movable, or something that
+should not have moved. A bag left on the sand is an ordinary continuity slip; a
+fixture in a new position is either a serious one or evidence that the two shots
+are not the same moment at all.
 
 **What the vision pass can and cannot do.** Measured against the answer key,
 Gemini reads shadow *direction* to within a few degrees once a shadow is long
@@ -580,7 +602,9 @@ because framing is identical within a setup and the bias travels with framing.
   `google-cloud-aiplatform[adk]`, which is the path the hackathon's own setup
   instructions give. The agent is an ADK `LlmAgent` with an `McpToolset`; see
   [`codes/backpy/app/agent.py`](codes/backpy/app/agent.py).
-- **google-genai** and **Vertex AI**: Gemini 3.7 Flash for perception,
+- **google-genai** and the **Gemini Enterprise Agent Platform** (the product
+  formerly called Vertex AI; the SDK, the endpoint and the billing are
+  unchanged): Gemini 3.7 Flash for perception,
   adjudication and the agent itself, Gemini 3 Pro Image for the base plates.
   This project uses no AI SDK from any other provider.
 - **[mcp-clickhouse](https://github.com/ClickHouse/mcp-clickhouse)** - ClickHouse,

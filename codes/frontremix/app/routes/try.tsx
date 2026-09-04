@@ -134,6 +134,7 @@ export default function TryYourClips() {
   const [report, setReport] = useState("");
   const [conditions, setConditions] = useState<Array<Conditions | null>>([]);
   const [joins, setJoins] = useState<Join[]>([]);
+  const [unread, setUnread] = useState<Array<{ from: number; to: number }>>([]);
   const [runStartedAt, setRunStartedAt] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
   const [confirmRerun, setConfirmRerun] = useState(false);
@@ -154,7 +155,14 @@ export default function TryYourClips() {
 
   // Worked out once and used twice: the list under the answer, and the tabs on
   // the comparison panel.
-  const comparisons = describeJoins(joins, ordered, sceneChanges, findings, project);
+  const comparisons = describeJoins(
+    joins,
+    ordered,
+    sceneChanges,
+    findings,
+    project,
+    unread,
+  );
   const joinNotes = comparisons.map((join) => ({
     key: join.key,
     from: join.from,
@@ -164,6 +172,24 @@ export default function TryYourClips() {
   }));
 
   const findingGroups = groupFindings(comparisons, findings, project);
+
+  // A report that does not say which joins carry no reading reads as though
+  // every join was read. The note goes at the top, where somebody who prints
+  // it cannot miss it, and it says nothing when there is nothing to say.
+  const reportWithGaps =
+    unread.length > 0 && report
+      ? `**Not every join was read.** ` +
+        `${unread
+          .map((gap) => `Take ${gap.from} to take ${gap.to}`)
+          .join(", ")} could not be read by the vision pass, so ` +
+        `${unread.length === 1 ? "that join carries" : "those joins carry"} ` +
+        `no reading of the frames on either side of the cut. Nothing was ` +
+        `measured across ${unread.length === 1 ? "it" : "them"} and nothing ` +
+        `was ruled out. Everything below concerns the joins that were read.` +
+        `
+
+${report}`
+      : report;
 
   // Only our own clips can be started from a kept reading: the key is the file
   // name we ship, so somebody's own footage can never match one, and the choice
@@ -186,6 +212,7 @@ export default function TryYourClips() {
     setSceneChanges([]);
     setConditions([]);
     setJoins([]);
+    setUnread([]);
     setReport("");
 
     const startedAtMs = Date.now();
@@ -198,6 +225,7 @@ export default function TryYourClips() {
       setStage("Reading the light and checking each join is inside one scene");
       const seen = await findSceneChanges(apiBase, ordered, allOurs && useCache);
       setSceneChanges(seen.changes);
+      setUnread(seen.unread);
       setConditions(seen.conditions);
       setJoins(seen.joins);
 
@@ -714,7 +742,7 @@ export default function TryYourClips() {
 
       {reportOpen ? (
         <ReportSheet
-          markdown={report}
+          markdown={reportWithGaps}
           onClose={() => setReportOpen(false)}
           onExport={
             project
@@ -1032,10 +1060,15 @@ async function findSceneChanges(
   changes: SceneChange[];
   conditions: Array<Conditions | null>;
   joins: Join[];
+  unread: Array<{ from: number; to: number }>;
 }> {
   const changes: SceneChange[] = [];
   const conditions: Array<Conditions | null> = takes.map(() => null);
   const joins: Join[] = [];
+  //: Joins the vision pass could not read. Named rather than dropped: a join
+  //: with no reading behind it must never look like a join that came back
+  //: clean, and dropping it silently left the count saying otherwise.
+  const unread: Array<{ from: number; to: number }> = [];
 
   for (let index = 0; index + 1 < takes.length; index += 1) {
     const outgoing = takes[index].tailFrame;
@@ -1058,7 +1091,10 @@ async function findSceneChanges(
     // them nothing, while a scene change wrongly analysed produces findings
     // they can dismiss by looking.
     const response = await fetch(`${base}/api/ground`, { method: "POST", body });
-    if (!response.ok) continue;
+    if (!response.ok) {
+      unread.push({ from: index + 1, to: index + 2 });
+      continue;
+    }
 
     const answer = (await response.json()) as {
       same_place: boolean;
@@ -1081,7 +1117,7 @@ async function findSceneChanges(
     conditions[index] = conditions[index] ?? answer.conditions?.outgoing ?? null;
     conditions[index + 1] = answer.conditions?.incoming ?? null;
   }
-  return { changes, conditions, joins };
+  return { changes, conditions, joins, unread };
 }
 
 async function createProject(
@@ -1363,8 +1399,49 @@ function describeJoins(
   changes: SceneChange[],
   findings: Finding[],
   project: Project | null,
+  unread: Array<{ from: number; to: number }>,
 ): Array<Comparison & { key: string; from: number; to: number }> {
-  return joins.flatMap((join) => {
+  // A join whose pair could not be read still belongs in the list, in its own
+  // place in the cut, saying so. Both frames are here, so the reader can see
+  // the cut the tool could not.
+  const missing = unread.map((gap) => ({
+    from: gap.from,
+    to: gap.to,
+    grid: DEFAULT_GRID,
+    differences: [] as GridDifference[],
+    tone: "unread" as Comparison["tone"],
+    status: "could not be read, so nothing was checked here",
+  }));
+
+  const all = [
+    ...joins.map((join) => ({ join, gap: null as null | (typeof missing)[number] })),
+    ...missing.map((gap) => ({ join: null as Join | null, gap })),
+  ].sort((a, b) => (a.join?.from ?? a.gap!.from) - (b.join?.from ?? b.gap!.from));
+
+  type Row = Comparison & { key: string; from: number; to: number };
+
+  return all.flatMap(({ join, gap }): Row[] => {
+    if (!join && gap) {
+      const outgoing = takes[gap.from - 1]?.tailFrame?.dataUrl;
+      const incoming = takes[gap.to - 1]?.headFrame?.dataUrl;
+      if (!outgoing || !incoming) return [];
+      return [
+        {
+          key: `${gap.from}-${gap.to}`,
+          from: gap.from,
+          to: gap.to,
+          outgoing,
+          incoming,
+          grid: gap.grid,
+          differences: gap.differences,
+          fromLabel: `Take ${gap.from}`,
+          toLabel: `Take ${gap.to}`,
+          tone: gap.tone,
+          status: gap.status,
+        },
+      ];
+    }
+    if (!join) return [];
     const outgoing = takes[join.from - 1]?.tailFrame?.dataUrl;
     const incoming = takes[join.to - 1]?.headFrame?.dataUrl;
     if (!outgoing || !incoming) return [];
@@ -1451,7 +1528,9 @@ function groupFindings(
       tone: join.tone ?? "clean",
       findings: mine,
       note:
-        join.tone === "scene"
+        join.tone === "unread"
+          ? "The vision pass could not read this pair, so this join carries no reading at all. It is not a clean join: nothing was measured across it, and nothing was ruled out. Running again is usually enough, because the failure has been a timeout every time."
+          : join.tone === "scene"
           ? "These two shots are not the same place, so this is a scene change rather than a cut inside a scene. Continuity rules do not apply across it, and nothing was checked."
           : join.differences.length > 0
             ? "The grid marked a difference here, and the agent read it and did not think it worth filing. What it marked is on the frames above."

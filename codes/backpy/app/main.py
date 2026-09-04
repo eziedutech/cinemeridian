@@ -1193,6 +1193,19 @@ async def _read_pair(payload: bytes, settings: Any, reads: int) -> list[str]:
         for attempt in attempts:
             if isinstance(attempt, BaseException):
                 logger.warning("a pair read failed: %r", attempt)
+
+    # Nothing at all came back, which has been a timeout every time it has
+    # happened and has cleared on the next attempt with the same two frames.
+    # One more try, because the cost of not trying is a join dropped from the
+    # cut with no reading behind it, and that is the one outcome this page must
+    # not produce quietly.
+    if not readings:
+        try:
+            readings = [await read_once(0)]
+            logger.info("the pair was read on a second attempt")
+        except BaseException as second:  # noqa: BLE001 - reported, not raised
+            logger.warning("the second pair read failed too: %r", second)
+
     return readings
 
 

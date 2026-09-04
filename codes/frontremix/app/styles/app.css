@@ -1666,6 +1666,7 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 
 .join-group.tone-marked .join-group-head b { color: var(--amber); }
 .join-group.tone-scene .join-group-head b { color: var(--sea); }
+.join-group.tone-unread .join-group-head b { color: var(--alarm); }
 
 .join-group-note {
   margin: 0;
@@ -1727,6 +1728,7 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 /* The same three states in both places, so a colour means one thing. */
 .join-tab.tone-marked b { color: var(--amber); }
 .join-tab.tone-scene b { color: var(--sea); }
+.join-tab.tone-unread b { color: var(--alarm); }
 
 /* The joins, listed under the answer */
 
@@ -1752,6 +1754,7 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 .join-notes b { color: var(--ink-dim); font-weight: 500; white-space: nowrap; }
 .join-notes .tone-marked b { color: var(--amber); }
 .join-notes .tone-scene b { color: var(--sea); }
+.join-notes .tone-unread b { color: var(--alarm); }
 
 /* What it was given, and how it went: one row, because neither is the reading
    and both are the receipt. */

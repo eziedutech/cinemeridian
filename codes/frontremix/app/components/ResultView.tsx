@@ -39,14 +39,14 @@ export type Comparison = {
   /** What was found at this join, in a few words. Shown on its tab. */
   status?: string;
   /** Which kind of thing that was, so the tab can be marked. */
-  tone?: "clean" | "marked" | "scene";
+  tone?: "clean" | "marked" | "scene" | "unread";
 };
 
 export type FindingGroup = {
   key: string;
   label: string;
   status: string;
-  tone: "clean" | "marked" | "scene";
+  tone: "clean" | "marked" | "scene" | "unread";
   findings: Finding[];
   /** Why this join produced nothing, when it produced nothing. */
   note: string;

@@ -623,7 +623,10 @@ evidence is that the two frames disagree.
 
 This tool sees that and does not accuse it. The pair pass puts both frames under
 one grid and reports the cells that differ, so a swapped prop does come back
-marked, with a box drawn on the frame. It stops there. That difference lives on
+marked, with a box drawn on the frame. Anything worn or carried on a person is
+further out still: the pass is told to ignore the people in shot and their
+shadows, because people move between takes and a tool that reports every one of
+those movements reports nothing. It stops there. That difference lives on
 the page: it is not written to ClickHouse, the agent is never handed it, and no
 finding is filed from it. The join reads "1 marked on the grid" rather than
 "1 finding filed", which is the honest distinction between something worth
@@ -637,11 +640,44 @@ rather than a setting.
    would become rows the agent can query, group across a whole cut, and reason
    about: a prop that disagrees at one join is a slip, and the same prop
    disagreeing at four is a reshoot.
-2. **There would have to be a kind for it.** The seven kinds the candidate
-   query knows are all about the sun and the clock. A prop that changes identity
-   between two frames of one scene is an eighth, and it needs its own rule for
-   when to file and its own language for what to recommend, because "reshoot the
-   pickup" is the wrong advice for a croissant.
+2. **There would have to be an eighth kind, and it can be stated exactly.**
+   The seven kinds the candidate query knows are all about the sun and the
+   clock. The eighth is about the person: across a join judged the same place,
+   under the same light and the same wardrobe, the things that belong to a
+   person do not change. Not because physics forbids it, but because two frames
+   that agree about everything else are one moment, and one moment holds one
+   croissant.
+
+   That wardrobe clause is the load-bearing one. It is what makes the rule safe
+   rather than noisy: if the clothes changed, time has moved, and what somebody
+   is holding is free to change with it. Clothing that has not changed is the
+   evidence that the two frames are the same minute.
+
+   Three tiers sit inside that one kind, and they are not equally hard.
+
+   - **In the person's possession.** A bottle in one frame and a can in the
+     next. Large in frame, plainly separable from the body, and roughly where
+     the hands were both times. This is the tier the grid already marks today.
+   - **Worn but loose.** A shawl that has moved to the other shoulder, a braid
+     that sits differently on a cape. Attached to the person, so the pass is
+     told to ignore it outright, and the rule would have to carve out an
+     exception rather than lift the exclusion.
+   - **Detail on the garment itself.** Two buttons that become three, a badge
+     that was not there before. Smallest, and the one the grid genuinely cannot
+     do: at a wide-to-close cut the same cell covers wildly different views, and
+     a badge is a few pixels on one side.
+
+   The exclusion those last two run into is deliberate. People move, pose and
+   breathe between takes, and ignoring them is what keeps false positives near
+   zero. Lifting it wholesale would drown the tool. What the tiers need instead
+   is to stop differencing cells and start comparing the same person to
+   themselves: find the figure on each side, align the garment, and compare part
+   to part at whatever scale each frame happens to be. There is already a
+   foothold for that in `locate_figures`, which finds figures and the horizon
+   and is used today only when the sample plates are prepared.
+
+   The recommendation has to change with the kind, too. "Reshoot the pickup" is
+   the wrong advice for a croissant.
 3. **More than two frames per take would have to be read.** The tool reads the
    head and the tail, because those are the two moments a cut joins. An error
    that appears and resolves inside a shot is never looked at. Reading more

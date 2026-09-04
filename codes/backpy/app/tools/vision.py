@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
 from google.genai import Client, types
+from google.genai.errors import APIError
 
 from app.settings import Settings, get_settings
 
@@ -206,8 +208,53 @@ def _client(project_id: str, location: str) -> Client:
     return Client(vertexai=True, project=project_id, location=location)
 
 
-def _models(settings: Settings):
-    return _client(settings.project_id, settings.gemini_location).models
+#: How the pool says it is busy. These models run on shared capacity rather
+#: than a quota this project owns, so there is no number to raise: 429 means
+#: the region was crowded for a moment, and 503 is the same thing under another
+#: code. Neither says anything about the request itself.
+BUSY_CODES = (429, 503)
+
+#: Long enough to let a crowd pass, short enough that somebody watching the
+#: overlay does not think it has stopped. Two waits, then the error stands.
+BUSY_WAITS_S = (2.0, 6.0)
+
+
+class _Retrying:
+    """The models client, with a pause and another try when the pool is busy.
+
+    Left to itself a single crowded second cost a whole adjudication: the tool
+    handed the agent an error, and whether the finding was ever looked at came
+    down to whether the agent happened to ask again. That is not a thing to
+    leave to chance, and it is not a thing to hide either - the wait is logged.
+
+    Only the busy codes are retried. A refusal, a malformed request or a
+    missing frame is an answer, and asking again would only ask again.
+    """
+
+    def __init__(self, models: Any) -> None:
+        self._models = models
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._models, name)
+
+    def generate_content(self, *args: Any, **kwargs: Any) -> Any:
+        for wait in (*BUSY_WAITS_S, None):
+            try:
+                return self._models.generate_content(*args, **kwargs)
+            except APIError as busy:
+                if wait is None or getattr(busy, "code", None) not in BUSY_CODES:
+                    raise
+                logger.warning(
+                    "the model pool was busy (%s), waiting %.0fs and asking again",
+                    getattr(busy, "code", "?"),
+                    wait,
+                )
+                time.sleep(wait)
+        raise RuntimeError("unreachable")
+
+
+def _models(settings: Settings) -> Any:
+    return _Retrying(_client(settings.project_id, settings.gemini_location).models)
 
 
 def _image_part(image_bytes: bytes, mime_type: str = "image/png") -> types.Part:

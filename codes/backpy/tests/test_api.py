@@ -304,3 +304,68 @@ class TestToolResultSummary:
             result = self.summarise(payload)
             assert result["ok"] is True
             assert result["rows"] is None
+
+
+# --- the model pool being busy -------------------------------------------
+#
+# These models run on shared capacity, so a crowded second is a normal event
+# rather than a fault, and one of them cost a whole adjudication in a real run.
+# What matters is that a busy answer is waited out and a real error is not.
+
+
+def _busy(code: int) -> Exception:
+    from google.genai.errors import ClientError
+
+    return ClientError(code, {"error": {"message": "busy", "status": "X"}})
+
+
+def test_a_busy_pool_is_waited_out(monkeypatch) -> None:
+    from app.tools import vision
+
+    monkeypatch.setattr(vision.time, "sleep", lambda _seconds: None)
+
+    calls = {"n": 0}
+
+    class Models:
+        def generate_content(self, **_kwargs):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise _busy(429)
+            return "read"
+
+    assert vision._Retrying(Models()).generate_content(model="m") == "read"
+    assert calls["n"] == 3
+
+
+def test_a_real_error_is_not_asked_again(monkeypatch) -> None:
+    from app.tools import vision
+
+    monkeypatch.setattr(vision.time, "sleep", lambda _seconds: None)
+
+    calls = {"n": 0}
+
+    class Models:
+        def generate_content(self, **_kwargs):
+            calls["n"] += 1
+            raise _busy(400)
+
+    with pytest.raises(Exception):
+        vision._Retrying(Models()).generate_content(model="m")
+    assert calls["n"] == 1
+
+
+def test_a_pool_that_stays_busy_gives_up(monkeypatch) -> None:
+    from app.tools import vision
+
+    monkeypatch.setattr(vision.time, "sleep", lambda _seconds: None)
+
+    calls = {"n": 0}
+
+    class Models:
+        def generate_content(self, **_kwargs):
+            calls["n"] += 1
+            raise _busy(503)
+
+    with pytest.raises(Exception):
+        vision._Retrying(Models()).generate_content(model="m")
+    assert calls["n"] == len(vision.BUSY_WAITS_S) + 1

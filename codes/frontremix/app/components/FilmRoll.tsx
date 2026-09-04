@@ -18,6 +18,8 @@ export function FilmRoll({
   elapsed,
   frames,
   events = [],
+  note,
+  showClock = true,
 }: {
   stage: string;
   elapsed: number;
@@ -25,6 +27,12 @@ export function FilmRoll({
   frames: string[];
   /** What the agent has done so far, newest last. */
   events?: TimelineEvent[];
+  /** What the wait is worth, in one sentence. The investigation and the
+   *  decoding of a few clips are waits of very different length, and telling
+   *  somebody to expect six minutes for a five second job is a lie that costs
+   *  their patience. */
+  note?: string;
+  showClock?: boolean;
 }) {
   // The strip is rendered twice end to end and translated by exactly half its
   // width, so the loop closes on itself with no jump. With nothing to show it
@@ -68,10 +76,10 @@ export function FilmRoll({
         ) : null}
 
         <p className="roll-time">
-          {formatElapsed(elapsed)}
+          {showClock ? formatElapsed(elapsed) : null}
           <span>
-            Four to six minutes is normal. The page is held so nothing you
-            already filled in gets changed while this runs.
+            {note ??
+              "Four to six minutes is normal. The page is held so nothing you already filled in gets changed while this runs."}
           </span>
         </p>
       </div>

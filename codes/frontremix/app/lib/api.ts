@@ -72,20 +72,8 @@ export async function fetchFindings(
  * approach that survives both shapes.
  */
 export function parseRows<T>(result: unknown): T[] {
-  const raw = typeof result === "string" ? result : JSON.stringify(result ?? "");
-  const text = raw.replace(/\\"/g, '"');
-
-  const start = text.indexOf('{"columns"');
-  if (start === -1) return [];
-  const end = text.indexOf("]]}", start);
-  if (end === -1) return [];
-
-  let payload: { columns: string[]; rows: unknown[][] };
-  try {
-    payload = JSON.parse(text.slice(start, end + 3));
-  } catch {
-    return [];
-  }
+  const payload = readEnvelope(result);
+  if (!payload) return [];
 
   return payload.rows.map((row) => {
     const record: Record<string, unknown> = {};
@@ -94,6 +82,56 @@ export function parseRows<T>(result: unknown): T[] {
     });
     return record as T;
   });
+}
+
+type Table = { columns: string[]; rows: unknown[][] };
+
+/**
+ * Find the table inside whatever MCP handed back.
+ *
+ * The tool returns its answer as a JSON document inside the `text` of a
+ * content part, so the structured path is one `JSON.parse` of that string and
+ * every escape in it survives. Digging the JSON out of the stringified whole
+ * instead costs a round of re-escaping, and `°` reaches the page as six
+ * literal characters where a degree sign was meant: the agent measures angles,
+ * so that is most of what it writes about.
+ */
+function readEnvelope(result: unknown): Table | null {
+  const direct = asTable(result);
+  if (direct) return direct;
+
+  const content = (result as { content?: Array<{ text?: string }> })?.content;
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      if (typeof part?.text !== "string") continue;
+      try {
+        const table = asTable(JSON.parse(part.text));
+        if (table) return table;
+      } catch {
+        // Not this part. A tool is allowed to return prose alongside a table.
+      }
+    }
+  }
+
+  // Older shapes, and anything that wrapped the document in prose: find the
+  // object by eye. Kept as the last resort rather than the first.
+  const raw = typeof result === "string" ? result : JSON.stringify(result ?? "");
+  const text = raw.replace(/\\"/g, '"');
+  const start = text.indexOf('{"columns"');
+  const end = text.indexOf("]]}", start);
+  if (start === -1 || end === -1) return null;
+  try {
+    return asTable(JSON.parse(text.slice(start, end + 3)));
+  } catch {
+    return null;
+  }
+}
+
+function asTable(value: unknown): Table | null {
+  const candidate = value as Table | null;
+  return candidate && Array.isArray(candidate.columns) && Array.isArray(candidate.rows)
+    ? candidate
+    : null;
 }
 
 function parseFindings(result: unknown): Finding[] {

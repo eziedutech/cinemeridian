@@ -199,8 +199,8 @@ h2.section {
   margin: 14px 0 0;
   padding: 11px 15px;
   background: var(--wash);
-  border-left: 3px solid var(--sand);
-  border-radius: 0 7px 7px 0;
+  border-top: 2px solid var(--sand);
+  border-radius: 7px;
   font-size: 13.5px;
 }
 

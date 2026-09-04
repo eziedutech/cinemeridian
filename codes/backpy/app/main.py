@@ -311,7 +311,7 @@ async def analyze(request: AnalyzeRequest):
     """
     from sse_starlette.sse import EventSourceResponse
 
-    from app.prompts import ANALYSIS_TASK, PROJECT_TASK
+    from app.prompts import ANALYSIS_TASK, PROJECT_TASK, REPORT_FORMAT
 
     # A visitor's own project gets its candidates computed for it. The demo
     # scene does not, deliberately: it is thirty takes with a scored answer key,
@@ -329,6 +329,7 @@ async def analyze(request: AnalyzeRequest):
             production_id=request.production_id,
             latitude=request.latitude,
             longitude=request.longitude,
+            report_format=REPORT_FORMAT,
         )
     else:
         task = PROJECT_TASK.format(
@@ -339,6 +340,7 @@ async def analyze(request: AnalyzeRequest):
             longitude=request.longitude,
             candidates=await _candidates_for(request),
             provenance=await _provenance_for(request),
+            report_format=REPORT_FORMAT,
         )
 
     async def events():

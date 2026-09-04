@@ -1,0 +1,460 @@
+/* The front door, built as a poster rather than as a page.
+ *
+ * One screen, no scrolling, and a photograph doing the arguing: a room with
+ * the window's shadow raked across the floor is the whole thesis in one image,
+ * because that shadow is a clock, and a cut that disagrees with it is the
+ * fault this tool exists to find.
+ *
+ * Everything here is laid out against the picture: the title where a poster
+ * puts its title, the claim where a poster puts its line, and the three doors
+ * where a poster puts its billing. Nothing scrolls, so nothing important can
+ * be below a fold that a judge with a laptop never reaches.
+ */
+
+/* The page itself does not scroll on a desktop: everything that matters is on
+   the one screen, and a stray scrollbar on a poster reads as a mistake. */
+@media (min-width: 861px) {
+  html, body { overflow: hidden; height: 100%; }
+}
+
+.poster {
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  isolation: isolate;
+}
+
+/* The photograph, and the dark it is read against */
+
+.poster-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background-image: url("/background.webp");
+  background-size: cover;
+  /* Framed low, because the subject of this photograph is the floor: the
+     window's bars raked across it are a clock, and that is the whole claim. */
+  background-position: 52% 84%;
+  filter: brightness(1.24) saturate(1.12) contrast(1.04);
+  transform: scale(1.03);
+}
+
+/* Two scrims rather than one flat wash: a vertical fall so the title and the
+   billing sit on dark, and a corner pool so the middle keeps its light. */
+.poster-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    /* Dark where the words are and nowhere else. The middle of the frame is
+       left alone: a scrim heavy enough to make type effortless also erases
+       the photograph, and then the page is arguing with a black rectangle. */
+    linear-gradient(
+      180deg,
+      rgba(9, 10, 13, 0.86) 0%,
+      rgba(9, 10, 13, 0.34) 18%,
+      rgba(9, 10, 13, 0.08) 42%,
+      rgba(9, 10, 13, 0.34) 66%,
+      rgba(9, 10, 13, 0.88) 86%,
+      rgba(9, 10, 13, 0.95) 100%
+    ),
+    linear-gradient(
+      90deg,
+      rgba(9, 10, 13, 0.72) 0%,
+      rgba(9, 10, 13, 0.4) 34%,
+      rgba(9, 10, 13, 0.02) 58%,
+      rgba(9, 10, 13, 0) 100%
+    );
+}
+
+/* Head */
+
+.poster-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+  padding: clamp(20px, 3.2vh, 34px) clamp(24px, 4vw, 64px) 0;
+}
+
+.poster-mark {
+  margin: 0;
+  line-height: 0;
+}
+
+/* Sized against the viewport like everything else on the poster, and given a
+   shadow of its own so it holds against the bright half of the photograph. */
+.poster-mark img {
+  height: clamp(38px, 3.4vw, 52px);
+  width: auto;
+  display: block;
+  filter: drop-shadow(0 2px 16px rgba(0, 0, 0, 0.55));
+}
+
+.poster-sub {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  color: rgba(205, 209, 216, 0.66);
+  letter-spacing: 0.02em;
+}
+
+/* The track badge earns its place: the first thing a judge checks is whether
+   this is in the right competition. */
+.poster-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  border: 1px solid rgba(201, 170, 125, 0.38);
+  border-radius: 999px;
+  background: rgba(12, 13, 17, 0.5);
+  backdrop-filter: blur(6px);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(244, 241, 234, 0.8);
+  white-space: nowrap;
+}
+
+.poster-badge b { color: var(--sand); font-weight: 600; }
+
+/* The claims */
+
+.poster-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 clamp(24px, 4vw, 64px);
+  min-height: 0;
+}
+
+/* The visible headings are the three claims, and a page owes a reader one h1
+   that says what it is. `.sr-only` itself lives in app.css, which every route
+   loads. */
+
+.claims {
+  /* The shadow lives here because a masked element clips its own, and without
+     it the cards sit flat on the photograph. */
+  filter: drop-shadow(0 22px 40px rgba(0, 0, 0, 0.5));
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(14px, 1.6vw, 26px);
+  align-items: start;
+  width: 100%;
+}
+
+/* The stagger, and the tilt.
+ *
+ * Three offsets that do not divide into each other, each card turned by a
+ * degree or two in a different direction, so the row reads as stills laid out
+ * on a table rather than as a grid somebody nudged. The angles stay under two
+ * degrees: enough to feel placed by hand, small enough that nobody reads a
+ * line of text at a slant. */
+.claim {
+  --lift: 0px;
+  --tilt: 0deg;
+  transform: translateY(var(--lift)) rotate(var(--tilt));
+  padding: clamp(26px, 2.9vh, 34px) clamp(16px, 1.3vw, 22px);
+  border-radius: 9px;
+  /* One surface end to end: the sprocket band is the same glass as the rest of
+     the card, and the holes read because the photograph shows through them
+     rather than because the strip around them was lightened. */
+  background: linear-gradient(
+    180deg,
+    rgba(10, 11, 15, 0.66) 0%,
+    rgba(10, 11, 15, 0.48) 100%
+  );
+  backdrop-filter: blur(7px);
+
+  /* Each card is a length of film, and the sprockets are punched rather than
+     drawn: the mask removes them, so what shows through a hole is the room in
+     the photograph behind the card. Five mask layers, all simply added
+     together, which every browser that masks at all can do. Compositing modes
+     would be the obvious tool and are the fragile one. */
+  --rail: 4px;
+  --holes: 11px;
+  --band: 15px;
+  --perf: repeating-linear-gradient(
+    90deg,
+    #000 0 8px,
+    transparent 8px 21px
+  );
+  -webkit-mask-image:
+    linear-gradient(#000, #000),
+    linear-gradient(#000, #000),
+    linear-gradient(#000, #000),
+    var(--perf),
+    var(--perf);
+  mask-image:
+    linear-gradient(#000, #000),
+    linear-gradient(#000, #000),
+    linear-gradient(#000, #000),
+    var(--perf),
+    var(--perf);
+  -webkit-mask-size:
+    100% calc(100% - var(--band) * 2),
+    100% var(--rail),
+    100% var(--rail),
+    100% var(--holes),
+    100% var(--holes);
+  mask-size:
+    100% calc(100% - var(--band) * 2),
+    100% var(--rail),
+    100% var(--rail),
+    100% var(--holes),
+    100% var(--holes);
+  -webkit-mask-position:
+    0 var(--band),
+    0 0,
+    0 100%,
+    8px var(--rail),
+    8px calc(100% - var(--rail));
+  mask-position:
+    0 var(--band),
+    0 0,
+    0 100%,
+    8px var(--rail),
+    8px calc(100% - var(--rail));
+  -webkit-mask-repeat: no-repeat, no-repeat, no-repeat, repeat-x, repeat-x;
+  mask-repeat: no-repeat, no-repeat, no-repeat, repeat-x, repeat-x;
+  animation: claim-in 700ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation-delay: calc(var(--claim-order, 0) * 130ms);
+}
+
+.claim:nth-child(1) { --lift: 6px; --tilt: -3.4deg; }
+.claim:nth-child(2) { --lift: 58px; --tilt: 2.7deg; }
+.claim:nth-child(3) { --lift: 18px; --tilt: -2.1deg; }
+
+.claim-question {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--sand);
+}
+
+.claim-question i {
+  font-style: normal;
+  font-size: 12px;
+  color: rgba(201, 170, 125, 0.55);
+}
+
+/* The heading and the sentence under it are lit differently on purpose. The
+   heading takes the warm of the room and falls off towards the sand of the
+   light on the floor; the description sits a step cooler and quieter, so the
+   eye lands on the claim before it starts reading the explanation. A colour
+   difference does that where a size difference alone does not. */
+.claim-headline {
+  margin: 0 0 11px;
+  font-size: clamp(23px, 2.45vw, 38px);
+  line-height: 1.08;
+  letter-spacing: -0.018em;
+  font-weight: 700;
+  color: #fdf8ee;
+  background: linear-gradient(174deg, #fffaf1 12%, #efe0c6 62%, #d9bf94 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-wrap: balance;
+  /* A gradient fill drops the shadow, so the dark comes from the panel under
+     it rather than from the type. */
+  filter: drop-shadow(0 3px 22px rgba(0, 0, 0, 0.55));
+}
+
+.claim-body {
+  margin: 0;
+  font-size: clamp(13px, 0.95vw, 15.5px);
+  line-height: 1.58;
+  color: rgba(212, 214, 219, 0.76);
+}
+
+@keyframes claim-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--lift) + 16px)) rotate(0deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(var(--lift)) rotate(var(--tilt));
+  }
+}
+
+/* Doors */
+
+.poster-foot {
+  padding: clamp(14px, 2vh, 26px) clamp(24px, 4vw, 64px) clamp(20px, 3.2vh, 34px);
+}
+
+.doors {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(10px, 1vw, 18px);
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.doors .door {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: clamp(13px, 1.7vh, 19px) clamp(15px, 1.4vw, 21px);
+  border: 1px solid rgba(201, 170, 125, 0.34);
+  border-radius: 9px;
+  /* Solid, and warm, where the claims above are cold glass with the room
+     showing through them. The difference is the whole message: those are
+     things to read, these are things to press. */
+  background: linear-gradient(180deg, #262119 0%, #1b1713 100%);
+  color: #f4f1ea;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    transform 180ms ease;
+}
+
+.doors .door:hover,
+.doors .door:focus-visible {
+  border-color: rgba(201, 170, 125, 0.85);
+  background: linear-gradient(180deg, #322a1f 0%, #241e17 100%);
+  transform: translateY(-3px);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.45);
+}
+
+.doors .door:focus-visible {
+  outline: 2px solid var(--sand);
+  outline-offset: 3px;
+}
+
+/* A thin warm line along the top edge, lit only on hover. It reads as the
+   card catching the light in the photograph rather than as a border. */
+.doors .door::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(201, 170, 125, 0) 0%,
+    rgba(201, 170, 125, 0.85) 50%,
+    rgba(201, 170, 125, 0) 100%
+  );
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+
+.doors .door:hover::before { opacity: 1; }
+
+/* One of the three is the one to press first, and saying so is kinder than
+   three identical boxes. */
+/* The first one is filled rather than outlined. A row of three identical
+   boxes makes somebody choose before they know anything; a filled one says
+   where to start, and says it without a word of instruction. */
+.doors .door-lead {
+  border-color: transparent;
+  background: linear-gradient(180deg, #dcc094 0%, #c5a273 100%);
+  color: #17130d;
+}
+
+.doors .door-lead:hover,
+.doors .door-lead:focus-visible {
+  border-color: transparent;
+  background: linear-gradient(180deg, #e7cda6 0%, #d0ae7f 100%);
+}
+
+.doors .door.door-lead b { color: #17130d; }
+.doors .door.door-lead b > svg { color: rgba(23, 19, 13, 0.75); }
+.doors .door.door-lead span { color: rgba(23, 19, 13, 0.72); }
+.doors .door.door-lead .door-go { color: rgba(23, 19, 13, 0.6); }
+.doors .door.door-lead:hover .door-go { color: #17130d; }
+.doors .door-lead::before { display: none; }
+
+.doors .door b {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: clamp(15px, 1.3vw, 18.5px);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: #fbf5e9;
+}
+
+.doors .door b > svg { flex: 0 0 auto; color: var(--sand); }
+
+/* The arrow is the promise that this goes somewhere. It waits, half lit,
+   until the cursor arrives. */
+.door-go {
+  margin-left: auto;
+  color: rgba(201, 170, 125, 0.5);
+  transform: translateX(-4px);
+  transition: transform 200ms ease, color 200ms ease;
+}
+
+.doors .door:hover .door-go,
+.doors .door:focus-visible .door-go {
+  color: var(--sand);
+  transform: translateX(0);
+}
+
+.doors .door span {
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(208, 211, 217, 0.64);
+}
+
+/* The line under the doors: what is true about this thing, in numbers that
+   were measured rather than adjectives. */
+.poster-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 22px;
+  margin-top: clamp(12px, 1.8vh, 20px);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.03em;
+  color: rgba(203, 207, 214, 0.52);
+}
+
+.poster-facts b { color: rgba(242, 232, 213, 0.9); font-weight: 500; }
+.poster-facts span { display: inline-flex; gap: 7px; align-items: baseline; }
+.poster-facts .dot { color: rgba(238, 234, 226, 0.24); }
+
+/* Short screens give the picture back its room by trimming the type first,
+   and drop the stagger, which is the first thing to cost height. */
+@media (max-height: 720px) {
+  .claim { --lift: 0px; --tilt: 0deg; padding-top: 23px; padding-bottom: 23px; }
+  .claim:nth-child(2), .claim:nth-child(3) { --lift: 0px; --tilt: 0deg; }
+  .claim-headline { font-size: clamp(19px, 1.8vw, 26px); }
+  .claim-body { font-size: 12px; line-height: 1.5; }
+  .doors .door span { display: none; }
+}
+
+/* Below a laptop the poster gives up and becomes a page, because a phone with
+   a fixed screen and this much to say is a phone that hides half of it. */
+@media (max-width: 1040px) {
+  .poster { height: auto; min-height: 100dvh; overflow: visible; }
+  .claims { grid-template-columns: 1fr; gap: 12px; }
+  .claim, .claim:nth-child(2), .claim:nth-child(3) { --lift: 0px; --tilt: 0deg; }
+  .doors { grid-template-columns: 1fr; }
+  .poster-head { flex-direction: column; gap: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .claim { animation: none; }
+  .doors .door:hover { transform: none; }
+}

@@ -7,6 +7,9 @@ type Props = {
   focusTakeId: string | null;
   onSelect: (finding: Finding) => void;
   onClearFocus: () => void;
+  /** Just the cards. For a page that has written its own heading and is
+   *  showing one group of findings among several. */
+  bare?: boolean;
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -33,6 +36,7 @@ export function FindingsMap({
   focusTakeId,
   onSelect,
   onClearFocus,
+  bare = false,
 }: Props) {
   const shown = focusTakeId
     ? findings.filter(
@@ -44,9 +48,29 @@ export function FindingsMap({
     (a, b) => severityRank(a.severity) - severityRank(b.severity),
   );
 
+  const listing = (
+    <ol
+      className="findings"
+      style={{ "--columns": Math.min(3, sorted.length) } as React.CSSProperties}
+    >
+      {sorted.map((finding) => {
+        const icon = categoryIcon(finding.finding_type, finding.entity, 15);
+        return <FindingCard key={finding.finding_id} finding={finding} icon={icon} selectedId={selectedId} onSelect={onSelect} />;
+      })}
+    </ol>
+  );
+
+  // A group inside somebody else's panel: no heading and no empty state,
+  // because the page around it has already said which join this is and what
+  // became of it.
+  if (bare) return listing;
+
+  // Not `report`: that class is the agent's prose, capped at 82ch for reading,
+  // and wearing it here quietly held the review queue to half the page with
+  // nothing beside it.
   return (
-    <section className="panel report" id="report">
-      <header className="report-head">
+    <section className="panel findings-panel" id="findings">
+      <header className="findings-head">
         <div>
           <h2>Findings</h2>
           <p className="hint">
@@ -75,86 +99,101 @@ export function FindingsMap({
             : "Nothing recorded for this cut yet. Run an analysis to populate it."}
         </p>
       ) : (
-        <ol className="findings">
-          {sorted.map((finding) => {
-            const icon = categoryIcon(finding.finding_type, finding.entity, 15);
-            return (
-              <li key={finding.finding_id}>
-                <article
-                  className="finding"
-                  aria-selected={finding.finding_id === selectedId}
-                  tabIndex={0}
-                  onClick={() => onSelect(finding)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      onSelect(finding);
-                    }
-                  }}
-                >
-                  <span className={`ribbon ribbon-${finding.severity}`}>
-                    {icon.node}
-                    <span className="ribbon-text">{icon.label}</span>
-                  </span>
-
-                  <div className="finding-body">
-                    <h3 className="finding-title">
-                      {TYPE_LABEL[finding.finding_type] ?? finding.finding_type}
-                    </h3>
-
-                    <p className="finding-takes">
-                      {finding.take_a}
-                      {finding.take_b ? (
-                        <>
-                          <span className="arrow">→</span>
-                          {finding.take_b}
-                        </>
-                      ) : null}
-                      {finding.attribute ? (
-                        <span className="attr">{finding.attribute}</span>
-                      ) : null}
-                    </p>
-
-                    <p className="finding-delta">{finding.observed_delta}</p>
-
-                    {finding.computed_expectation ? (
-                      <p className="finding-line">
-                        <span>Physics expected</span>
-                        {finding.computed_expectation}
-                      </p>
-                    ) : null}
-
-                    {finding.gemini_verdict ? (
-                      <p className="finding-line">
-                        <span>Looked at</span>
-                        {finding.gemini_verdict}
-                      </p>
-                    ) : null}
-
-                    {finding.recommendation ? (
-                      <p className="finding-recommendation">
-                        {finding.recommendation}
-                      </p>
-                    ) : null}
-
-                    <p className="finding-foot">
-                      <span className={`sev sev-${finding.severity}`}>
-                        {finding.severity}
-                      </span>
-                      {finding.visible_in_cut ? (
-                        <span>visible at speed</span>
-                      ) : (
-                        <span className="muted">not visible at speed</span>
-                      )}
-                      <span className="muted">awaiting human review</span>
-                    </p>
-                  </div>
-                </article>
-              </li>
-            );
-          })}
-        </ol>
+        listing
       )}
     </section>
+  );
+}
+
+/**
+ * One finding, as a card.
+ *
+ * Its own component so the list can be rendered either inside this panel or,
+ * in bare form, inside a page that groups findings by the join they belong to.
+ */
+function FindingCard({
+  finding,
+  icon,
+  selectedId,
+  onSelect,
+}: {
+  finding: Finding;
+  icon: { node: JSX.Element; label: string };
+  selectedId: string | null;
+  onSelect: (finding: Finding) => void;
+}) {
+  return (
+            <li key={finding.finding_id}>
+              <article
+                className="finding"
+                aria-selected={finding.finding_id === selectedId}
+                tabIndex={0}
+                onClick={() => onSelect(finding)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelect(finding);
+                  }
+                }}
+              >
+                <span className={`ribbon ribbon-${finding.severity}`}>
+                  {icon.node}
+                  <span className="ribbon-text">{icon.label}</span>
+                </span>
+
+                <div className="finding-body">
+                  <h3 className="finding-title">
+                    {TYPE_LABEL[finding.finding_type] ?? finding.finding_type}
+                  </h3>
+
+                  <p className="finding-takes">
+                    {finding.take_a}
+                    {finding.take_b ? (
+                      <>
+                        <span className="arrow">→</span>
+                        {finding.take_b}
+                      </>
+                    ) : null}
+                    {finding.attribute ? (
+                      <span className="attr">{finding.attribute}</span>
+                    ) : null}
+                  </p>
+
+                  <p className="finding-delta">{finding.observed_delta}</p>
+
+                  {finding.computed_expectation ? (
+                    <p className="finding-line">
+                      <span>Physics expected</span>
+                      {finding.computed_expectation}
+                    </p>
+                  ) : null}
+
+                  {finding.gemini_verdict ? (
+                    <p className="finding-line">
+                      <span>Looked at</span>
+                      {finding.gemini_verdict}
+                    </p>
+                  ) : null}
+
+                  {finding.recommendation ? (
+                    <p className="finding-recommendation">
+                      {finding.recommendation}
+                    </p>
+                  ) : null}
+
+                  <p className="finding-foot">
+                    <span className={`sev sev-${finding.severity}`}>
+                      {finding.severity}
+                    </span>
+                    {finding.visible_in_cut ? (
+                      <span>visible at speed</span>
+                    ) : (
+                      <span className="muted">not visible at speed</span>
+                    )}
+                    <span className="muted">awaiting human review</span>
+                  </p>
+                </div>
+              </article>
+            </li>
   );
 }

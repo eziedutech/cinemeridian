@@ -133,8 +133,38 @@ function render(markdown: string): JSX.Element[] {
   return out;
 }
 
+/**
+ * The few LaTeX tokens a model reaches for when it wants a symbol.
+ *
+ * It is asked not to and mostly does not, but a report already written and
+ * frozen cannot be asked again, and a raw `$\Delta$` in the middle of a
+ * sentence is the kind of detail that makes careful work look unfinished.
+ */
+const MATHS: Record<string, string> = {
+  Delta: "Δ",
+  delta: "δ",
+  rightarrow: "→",
+  to: "→",
+  times: "×",
+  approx: "≈",
+  pm: "±",
+  circ: "°",
+  degree: "°",
+  le: "≤",
+  ge: "≥",
+};
+
+function plainMaths(text: string): string {
+  return text.replace(/\$([^$\n]{1,60})\$/g, (_whole, body: string) =>
+    body
+      .trim()
+      .replace(/\\([a-zA-Z]+)/g, (token: string, name: string) => MATHS[name] ?? name),
+  );
+}
+
 /** Bold, inline code, and the mathematical arrow the agent likes for a cut. */
-function inline(text: string): (string | JSX.Element)[] {
+function inline(source: string): (string | JSX.Element)[] {
+  const text = plainMaths(source);
   const parts: (string | JSX.Element)[] = [];
   const pattern = /\*\*([^*]+)\*\*|`([^`]+)`|\$\\rightarrow\$|\\u2192/g;
 

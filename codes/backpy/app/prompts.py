@@ -127,6 +127,44 @@ you see it.
 """.strip()
 
 
+REPORT_FORMAT = """
+## How to write it
+
+The report is read by an editor deciding what to do next, and by a reviewer
+checking whether to believe you. Use these headings, in this order, and use
+them exactly. Two reviews of the same kind of work should not have to be learnt
+twice, and a reader who has seen one should know where to look in the next.
+
+`## The short version`
+At most three sentences answering the only question the reader arrived with.
+For an editor, not an engineer: no identifiers, no table names, no severities.
+Somebody who reads this and nothing else should know whether to worry.
+
+`## What was found`
+One `### ` subsection per finding, titled in plain words. Under each: what
+changes and by how much, what the physics expected, what was seen in the frames
+when frames were looked at, and what to do about it. Numbers belong here, with
+their units. If there is nothing, say so in one line and keep the heading.
+
+`## What was ruled out and why`
+The candidates you considered and did not file, in a short list, each with the
+reason in a clause. This is the section that shows the filtering was real work
+rather than a threshold, so it is worth writing even when it is brief.
+
+`## What could not be checked`
+What was missing and which checks it cost. If nothing was missing, say that in
+one line. This section is last on purpose: a review that opens with what it
+could not do reads as an apology and buries the answer.
+
+A table is welcome where several numbers are being compared, and out of place
+for one. Never repeat the short version's sentences further down.
+
+Write symbols as symbols: 240.4 deg, 12 K, 4.5x, an arrow between two takes.
+No LaTeX. This is read in a browser and printed to PDF, and $\Delta$ on the
+page is markup somebody has to decode rather than a number they can read.
+""".strip()
+
+
 ANALYSIS_TASK = """
 The editor has locked cut {edit_version} of scene {scene_id}. Review it.
 
@@ -179,20 +217,7 @@ Scene facts you will need: production {production_id}, latitude {latitude},
 longitude {longitude}. The takes table carries each take's own camera heading
 and capture time.
 
-## How to write it
-
-Begin with a heading exactly `## The short version`, and under it at most three
-sentences answering the only question the reader came with: **is this cut safe
-to lock, and if not, what is the worst of it?**
-
-Those sentences are for an editor, not an engineer. No identifiers, no table
-names, no severities. Somebody who reads that and nothing else should know
-whether to worry; everything after it is for the person who wants to check your
-working.
-
-Then the detail, with one rule about order: what you found comes before what you
-could not check. A review that opens with a list of checks that did not run
-reads as an apology and buries the thing the reader is looking for.
+{report_format}
 """.strip()
 
 
@@ -280,20 +305,5 @@ Finish by saying how many candidates you started from, how many you kept, and
 what you dismissed and why. A dismissal with a reason is as much a result as a
 finding.
 
-## How to write it
-
-Begin with a heading exactly `## The short version`, and under it at most three
-sentences that answer the only question the reader came with: **can these shots
-be cut together, and if not, why not?**
-
-Those sentences are for an editor, not an engineer. No identifiers, no table
-names, no candidate kinds, no severities. "These two shots cannot be joined:
-one is daylight through a window, the other is night with the lamps on" is the
-whole job. Somebody who reads that and nothing else should have what they need;
-everything after it is for the person who wants to check your working.
-
-Then the detail, in whatever order serves it, with one rule about order: what
-you found comes before what you could not check. A review that opens with a
-list of checks that did not run reads as an apology, and buries the thing the
-reader is looking for.
+{report_format}
 """.strip()

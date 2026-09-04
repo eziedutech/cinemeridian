@@ -61,8 +61,16 @@ a { color: var(--sea); }
   flex-wrap: wrap;
 }
 
-.wordmark { font-size: 21px; font-weight: 600; margin: 0; }
+/* The mark is an image now, so the heading is only a hanger for it. Its own
+   height rather than a share of the text size, because a logo that changes
+   size with a font stack is a logo that will one day be wrong. */
+.wordmark { font-size: 21px; font-weight: 600; margin: 0; line-height: 0; }
 .wordmark span { color: var(--sand); }
+.wordmark img { height: 34px; width: auto; display: block; }
+/* The name is the way back to the front page, as it is on most sites, so it
+   should not announce itself as a link until somebody reaches for it. */
+.wordmark a { color: inherit; text-decoration: none; }
+.wordmark a:hover { color: var(--sand); }
 .tagline { color: var(--ink-dim); font-size: 13px; margin: 3px 0 0; }
 
 .scene-line {
@@ -128,7 +136,17 @@ button {
   font-weight: 600;
 }
 
-button:hover:not(:disabled) { background: #dbbe97; }
+/* Only the filled kind lightens on hover, and it yields to anything that has
+   said otherwise.
+ *
+ * This was `button:hover:not(:disabled)`, which outweighs a single class, so
+ * every button wearing a class of its own - a ghost, a card, a dashed outline,
+ * a thumbnail - turned into a solid sand block under the cursor and swallowed
+ * its own label. It went out five times in different clothes. A list of
+ * exclusions only grows; one weak selector loses to `.anything:hover` by
+ * construction, which is the behaviour every variant already expects. */
+button:hover { background: #dbbe97; }
+
 button:disabled { opacity: 0.4; cursor: default; }
 
 button.ghost {
@@ -138,8 +156,14 @@ button.ghost {
   font-weight: 500;
 }
 
-button.ghost:hover:not(:disabled) { color: var(--ink); border-color: var(--ink-faint); }
+button.ghost:hover {
+  color: var(--ink);
+  background: var(--raised);
+  border-color: var(--ink-faint);
+}
 button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand); border-color: var(--sand); }
+
+.icon-button:hover { background: var(--raised); color: var(--ink); }
 
 .icon-button {
   background: transparent;
@@ -149,6 +173,8 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   line-height: 1;
   padding: 2px 9px;
 }
+
+.linkish:hover { background: none; color: var(--ink); }
 
 .linkish {
   background: none;
@@ -336,7 +362,7 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   max-width: 62ch;
 }
 
-.report-head { margin-bottom: 4px; }
+.findings-head { margin-bottom: 4px; }
 
 .focus-bar {
   font-size: 13px;
@@ -352,8 +378,26 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 
 /* Findings */
 
-.findings { list-style: none; margin: 0; padding: 0; }
-.findings > li { margin-bottom: 16px; }
+/* As many columns as there are findings, up to three, and fewer than that if
+   the panel is too narrow to give each one room to be read.
+ *
+ * The track floor does both jobs at once: it asks for the panel divided by the
+ * number of findings, so three cards never become four columns, and it refuses
+ * to go under 280px, so a narrow panel drops to two columns or one on its own.
+ * A viewport media query cannot do this, because the same list sits in a full
+ * width panel on one page and in a column on another. */
+.findings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(clamp(280px, calc((100% - 32px) / var(--columns, 1)), 100%), 1fr)
+  );
+  gap: 16px;
+  align-items: start;
+}
 
 .finding {
   position: relative;
@@ -399,7 +443,16 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 .ribbon-low { background: var(--sea); color: #0b171b; }
 .ribbon-info { background: var(--ink-faint); color: #16171b; }
 
-.finding-body { padding-right: 128px; }
+/* The ribbon needs the top right corner and nothing else. A padding down the
+   whole card kept a column of empty space beside every line of every finding,
+   which in a narrow column is a third of the card. A float of the ribbon's own
+   size gets out of the way as soon as the text has passed it. */
+.finding-body::before {
+  content: "";
+  float: right;
+  width: 124px;
+  height: 30px;
+}
 
 .finding-title {
   font-size: 16px;
@@ -1003,7 +1056,10 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 
 /* The same grid the model was shown, so a named cell can be found by eye.
    Faint on purpose: it is a reference, not the subject. */
-.cut-rule { position: absolute; background: rgba(255, 255, 255, 0.14); }
+/* The grid is the model's own frame of reference, so it has to be readable on
+   sand, on a dark room and on skin. White vanished on the bright half of a
+   frame; a thin warm red holds on both and never reads as part of the picture. */
+.cut-rule { position: absolute; background: rgba(200, 86, 63, 0.45); }
 .cut-rule.v { top: 0; bottom: 0; width: 1px; }
 .cut-rule.h { left: 0; right: 0; height: 1px; }
 
@@ -1149,18 +1205,37 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 
 .invite button { font-size: 15px; padding: 12px 26px; }
 
-/* The two doors inside it */
+/* The sample picker */
 
-.door { font-size: 14.5px; color: var(--ink); margin: 0 0 8px; }
-.door-rule { border: 0; border-top: 1px solid var(--line-soft); margin: 26px 0 22px; }
+.sheet.picker { width: min(860px, 100%); padding: 22px 24px 20px; }
+
+.picker-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 22px;
+  margin-bottom: 18px;
+}
+
+.picker-head h2 { font-size: 18px; font-weight: 600; margin: 0 0 6px; }
+
+/* Standing copy, not the instruction. It is here for whoever wants to know
+   why these six clips, and it should not compete with the six clips. */
+.picker-head .hint {
+  margin: 0;
+  max-width: 60ch;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-faint);
+}
 
 .clip-list {
   list-style: none;
-  margin: 0 0 4px;
+  margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 9px;
 }
 
 .clip {
@@ -1168,6 +1243,7 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   align-items: flex-start;
   gap: 12px;
   width: 100%;
+  height: 100%;
   text-align: left;
   padding: 12px 14px;
   background: var(--raised);
@@ -1175,14 +1251,31 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   border-radius: var(--r);
   color: var(--ink-dim);
   font: inherit;
+  font-weight: 400;
   cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
 }
 
-.clip:hover { border-color: color-mix(in srgb, var(--sand) 50%, transparent); }
+/* Hover is a hint that a thing can be pressed, not an announcement. Anything
+   stronger competes with the picked state, which is the one that carries
+   meaning here. */
+.clip:hover {
+  background: var(--raised);
+  border-color: var(--ink-faint);
+}
 
 /* Picked clips carry their position in the cut, because the order is the
    thing being tested: the same clips in another order are another edit. */
-.clip.picked { border-color: var(--sand); background: color-mix(in srgb, var(--sand) 8%, var(--raised)); }
+.clip.picked {
+  border-color: color-mix(in srgb, var(--sand) 70%, transparent);
+  background: color-mix(in srgb, var(--sand) 7%, var(--raised));
+}
+
+.clip.picked:hover {
+  background: color-mix(in srgb, var(--sand) 7%, var(--raised));
+  border-color: var(--sand);
+}
+
 .clip.picked .clip-order { background: var(--sand); color: #12141a; }
 
 .clip-order {
@@ -1198,8 +1291,387 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   color: var(--ink-faint);
 }
 
+.clip-text { min-width: 0; }
 .clip b { display: block; font-size: 13.5px; color: var(--ink); margin-bottom: 3px; }
 .clip em { font-style: normal; font-size: 12.5px; line-height: 1.55; }
+
+/* Waiting, in the shape of the thing being waited for.
+ *
+ * The six cards are fetched from the API, and on a cold service that is a
+ * second or two of nothing. Six blanks of the right size hold the panel at its
+ * final height, so nothing jumps when the real ones arrive, and they say what
+ * is coming rather than leaving somebody to wonder whether it broke. */
+.clip-waiting {
+  cursor: default;
+  min-height: 92px;
+}
+
+.clip-waiting .clip-order { background: var(--line); }
+
+.waiting-line {
+  display: block;
+  height: 9px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--line) 0%,
+    var(--line-soft) 40%,
+    var(--line) 80%
+  );
+  background-size: 220% 100%;
+  animation: waiting-sweep 1.5s ease-in-out infinite;
+}
+
+.waiting-title { height: 11px; width: 62%; margin-bottom: 11px; }
+.waiting-line:nth-child(2) { width: 100%; }
+.waiting-short { width: 72%; margin-bottom: 0; }
+
+@keyframes waiting-sweep {
+  from { background-position: 130% 0; }
+  to { background-position: -30% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .waiting-line { animation: none; }
+}
+
+/* Read by a screen reader only. A skeleton says nothing out loud. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* One row, the count on the left and the way out on the right, so the button
+   is where a reader's eye already goes to leave a dialogue. */
+.picker-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.picker-count {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-faint);
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+/* A frame, as a length of film.
+ *
+ * The two frames a cut joins are the evidence, so they are shown as what they
+ * are rather than as pictures in boxes. The perforations are punched out of
+ * the image with a mask, and their shape comes from an SVG tile rather than a
+ * gradient: real sprockets have rounded corners, and square slots cut by a
+ * stripe pattern read as a dashed border somebody drew, not as film.
+ *
+ * Named `frame-strip` rather than `filmstrip`, which belongs to the strip of
+ * takes on the example page.
+ *
+ * Both ends are the same: a hairline of picture at the very edge, a row of
+ * sprockets, then the frame. One tile and one horizontal offset serve both
+ * rows, so every hole at the top has a hole directly beneath it and the same
+ * gap to the edge. */
+.frame-strip {
+  /* One tile carries the hairline of picture at the edge and the row of
+     sprockets under it, so those two can never drift apart. The middle layer
+     then overlaps both bands by a pixel: added masks may overlap freely, and
+     an overlap is the only way to be sure that rounding at some zoom level
+     does not open a transparent seam across the frame. */
+  --band: 16px;
+  --pitch: 26px;
+  --perf: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2726%27%20height%3D%2716%27%3E%3Cdefs%3E%3Cmask%20id%3D%27h%27%3E%3Crect%20width%3D%2726%27%20height%3D%2716%27%20fill%3D%27%23fff%27%2F%3E%3Crect%20x%3D%277%27%20y%3D%273.5%27%20width%3D%2712%27%20height%3D%279%27%20rx%3D%272.6%27%20fill%3D%27%23000%27%2F%3E%3C%2Fmask%3E%3C%2Fdefs%3E%3Crect%20width%3D%2726%27%20height%3D%2716%27%20fill%3D%27%23000%27%20mask%3D%27url%28%23h%29%27%2F%3E%3C%2Fsvg%3E");
+  -webkit-mask-image: linear-gradient(#000, #000), var(--perf), var(--perf);
+  mask-image: linear-gradient(#000, #000), var(--perf), var(--perf);
+  -webkit-mask-size:
+    100% calc(100% - var(--band) * 2 + 2px),
+    var(--pitch) var(--band), var(--pitch) var(--band);
+  mask-size:
+    100% calc(100% - var(--band) * 2 + 2px),
+    var(--pitch) var(--band), var(--pitch) var(--band);
+  -webkit-mask-position: 0 calc(var(--band) - 1px), 5px 0, 5px 100%;
+  mask-position: 0 calc(var(--band) - 1px), 5px 0, 5px 100%;
+  -webkit-mask-repeat: no-repeat, repeat-x, repeat-x;
+  mask-repeat: no-repeat, repeat-x, repeat-x;
+}
+
+/* The clip, as a still that plays */
+
+.clip-thumb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 12px 4px 4px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink-dim);
+  font: inherit;
+  font-weight: 400;
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+
+.clip-thumb:hover {
+  background: var(--raised);
+  border-color: var(--ink-faint);
+}
+
+.clip-thumb-still {
+  position: relative;
+  display: block;
+  width: 66px;
+  height: 38px;
+  flex: 0 0 auto;
+}
+
+.clip-thumb img,
+.clip-thumb-blank {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 5px;
+  display: block;
+  background: var(--line);
+}
+
+/* Centred on the still itself rather than measured from the edge of the
+   button, which is what put it off to one side. */
+.clip-thumb-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 21px;
+  height: 21px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(12, 13, 17, 0.66);
+  color: var(--ink);
+}
+
+.clip-thumb em {
+  font-style: normal;
+  font-size: 12.5px;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip-video {
+  width: 100%;
+  border-radius: 10px;
+  background: #000;
+  display: block;
+  max-height: 70vh;
+}
+
+.waiting-frame {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  margin-bottom: 9px;
+  background: linear-gradient(90deg, var(--line) 0%, var(--line-soft) 40%, var(--line) 80%);
+  background-size: 220% 100%;
+  animation: waiting-sweep 1.5s ease-in-out infinite;
+}
+
+.waiting-pair .waiting-line { margin-bottom: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .waiting-frame { animation: none; }
+}
+
+/* Setting up a run: where it was filmed, and what the run will be able to
+   check, side by side. They were two panels an entire screen apart, which put
+   the button a long way from the facts that decide what it can do. */
+.setup-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .setup-row { grid-template-columns: 1fr; }
+}
+
+.setup-row > .panel { margin-top: 0; height: 100%; }
+
+.act { display: flex; flex-direction: column; gap: 14px; }
+.act-body { min-width: 0; }
+
+.act-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--sand);
+}
+
+.act .report { font-size: 14.5px; }
+
+.act-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: auto;
+}
+
+/* The report, over the page.
+ *
+ * Narrower than the evidence sheet and with the prose let out to the full
+ * width: the reading measure that suits a panel beside a page of frames left a
+ * third of this sheet empty, and a report is the one thing here somebody sits
+ * and reads. */
+.sheet.report-sheet { width: min(840px, 100%); }
+.sheet.report-sheet .report { max-width: none; font-size: 14.5px; }
+.sheet.report-sheet .report h3 { margin-top: 30px; }
+.sheet.report-sheet .report h3:first-child { margin-top: 0; }
+.sheet.report-sheet .report-table table { width: 100%; }
+
+/* A question, not a panel. Narrow, so it reads as one decision. */
+.sheet.confirm { width: min(520px, 100%); padding: 24px 26px 22px; }
+.sheet.confirm h2 { margin: 0 0 12px; font-size: 18px; }
+.sheet.confirm p { margin: 0 0 10px; font-size: 14px; line-height: 1.6; color: var(--ink-dim); }
+.sheet.confirm .hint { margin: 0; }
+.sheet.confirm code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--sand);
+}
+
+/* The filed list, split by join.
+ *
+ * A join that produced nothing gets a block of its own saying so. An absence
+ * that a reader has to infer from a shorter list is not an answer, and the
+ * three states here are genuinely different: read and clean, read and marked
+ * but not worth filing, and a scene change where the rules do not apply. */
+.join-groups { display: grid; gap: 14px; margin-top: 16px; }
+
+.join-group {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r);
+  padding: 14px 16px 16px;
+}
+
+.join-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.join-group-head b { font-size: 13.5px; color: var(--ink); font-weight: 600; }
+.join-group-head em { font-style: normal; font-size: 12px; color: var(--ink-faint); }
+
+.join-group.tone-marked .join-group-head b { color: var(--amber); }
+.join-group.tone-scene .join-group-head b { color: var(--sea); }
+
+.join-group-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-faint);
+  max-width: 84ch;
+}
+
+/* Which join is being looked at, and what came of the others.
+ *
+ * The tabs carry their own verdict rather than a number alone: a reader
+ * scanning them should be able to see that four joins came back clean without
+ * opening any of them. */
+.join-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 16px;
+}
+
+.join-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 13px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink-dim);
+  font: inherit;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease;
+}
+
+.join-tab:hover { background: var(--raised); border-color: var(--ink-faint); }
+.join-tab.on { border-color: var(--sand); background: color-mix(in srgb, var(--sand) 8%, var(--raised)); }
+
+.join-tab b { font-size: 13px; color: var(--ink); font-weight: 600; }
+.join-tab em { font-style: normal; font-size: 11.5px; color: var(--ink-faint); }
+
+/* The same three states in both places, so a colour means one thing. */
+.join-tab.tone-marked b { color: var(--amber); }
+.join-tab.tone-scene b { color: var(--sea); }
+
+/* The joins, listed under the answer */
+
+.join-notes {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.join-notes li {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  padding: 4px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.join-notes li:first-child { border-top: 0; }
+.join-notes b { color: var(--ink-dim); font-weight: 500; white-space: nowrap; }
+.join-notes .tone-marked b { color: var(--amber); }
+.join-notes .tone-scene b { color: var(--sea); }
+
+/* What it was given, and how it went: one row, because neither is the reading
+   and both are the receipt. */
+.result-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 14px;
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .result-pair { grid-template-columns: 1fr; }
+}
+
+.result-pair > .panel { margin-top: 0; height: 100%; }
 
 /* The agent's report, as prose rather than a log line */
 
@@ -1435,14 +1907,7 @@ button.small { padding: 5px 12px; font-size: 12px; }
 
 /* The one action. It sits between the clips and the answers, and it is the
    only thing on the page that a person has to decide to press. */
-.act {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 26px;
-  flex-wrap: wrap;
-  border-color: color-mix(in srgb, var(--sand) 38%, transparent);
-}
+.act { border-color: color-mix(in srgb, var(--sand) 38%, transparent); }
 
 .act button { font-size: 14.5px; padding: 11px 22px; }
 

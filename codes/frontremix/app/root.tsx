@@ -7,11 +7,16 @@ import {
   isRouteErrorResponse,
   useRouteError,
 } from "@remix-run/react";
-import type { LinksFunction } from "@remix-run/node";
+import type { LinksFunction, MetaFunction } from "@remix-run/node";
 
 import styles from "~/styles/app.css?url";
 
 export const links: LinksFunction = () => [{ rel: "stylesheet", href: styles }];
+
+/* A default the pages override. Hard-coding a title in the document head
+   instead would leave every route carrying the console's name, including the
+   front page and the printable report. */
+export const meta: MetaFunction = () => [{ title: "CineMeridian" }];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -19,7 +24,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>CineMeridian - Continuity Console</title>
         <Meta />
         <Links />
       </head>
@@ -49,7 +53,7 @@ export function ErrorBoundary() {
   return (
     <div className="shell">
       <h1 className="wordmark">
-        Cine<span>Meridian</span>
+        <img src="/logocine.png" alt="CineMeridian" width={200} height={75} />
       </h1>
       <div className="panel" style={{ marginTop: 24 }}>
         <h2>Console unavailable</h2>

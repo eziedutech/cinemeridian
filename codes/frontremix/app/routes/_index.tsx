@@ -1,533 +1,234 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { json, type LoaderFunctionArgs, type SerializeFrom } from "@remix-run/node";
-import { useLoaderData, useRevalidator } from "@remix-run/react";
+import { useState } from "react";
+import { json, type LinksFunction, type MetaFunction } from "@remix-run/node";
+import { Link, useLoaderData } from "@remix-run/react";
 
-import { AgentTimeline, type TimelineEvent } from "~/components/AgentTimeline";
-import { Info } from "~/components/Info";
-import type { GridDifference } from "~/components/CutComparison";
-import { ResultView, type ResultFact } from "~/components/ResultView";
 import { TryYourself } from "~/components/TryYourself";
-import showcase from "~/showcase.json";
-import { describeCall, describeOutcome } from "~/lib/narrate";
-import { EvidencePair } from "~/components/EvidencePair";
-import { Filmstrip } from "~/components/Filmstrip";
-import { FindingsMap } from "~/components/FindingsMap";
-import { FramePlayer } from "~/components/FramePlayer";
-import { TakeDialog } from "~/components/TakeDialog";
-import { apiBase, fetchFindings, type Finding } from "~/lib/api";
-import { fetchTakes, type Take } from "~/lib/takes";
+import { apiBase } from "~/lib/api";
+import styles from "~/styles/home.css?url";
 
-const SCENE_ID = "sc14";
-const EDIT_VERSIONS = ["v13", "v14"];
-const PROJECT = { id: "prod_tideline", name: "The Tide Line" };
+export const links: LinksFunction = () => [{ rel: "stylesheet", href: styles }];
 
-export async function loader({ request }: LoaderFunctionArgs) {
-  const url = new URL(request.url);
-  const editVersion = url.searchParams.get("edit") ?? "v14";
+export const meta: MetaFunction = () => [
+  { title: "CineMeridian - continuity for the shoot and the cut" },
+  {
+    name: "description",
+    content:
+      "An agent that checks whether two shots can be cut together, by measuring the light in the frames and asking a database what the sun was doing.",
+  },
+];
 
-  const [{ findings, error }, library] = await Promise.all([
-    fetchFindings(editVersion, SCENE_ID),
-    fetchTakes(SCENE_ID, editVersion),
-  ]);
-
-  return json({
-    editVersion,
-    findings,
-    // One complete run, frozen by scripts/build_showcase.py, so the page opens
-    // on a finished piece of work rather than a spinner. The findings beside it
-    // are read live from ClickHouse, because those are cheap and are the thing
-    // a reviewer would actually act on.
-    showcase,
-    error: error ?? library.error,
-    takes: library.takes,
-    framesPerTake: library.framesPerTake,
-    bucket: library.bucket || (process.env.GCS_ASSET_BUCKET ?? "cinemeridian-assets"),
-    apiBase: apiBase(),
-  });
-}
-
-export default function Console() {
-  const data = useLoaderData<typeof loader>();
-  const { editVersion, findings, error, takes, framesPerTake, bucket, apiBase, showcase } =
-    data;
-  const [tryOpen, setTryOpen] = useState(false);
-  const revalidator = useRevalidator();
-
-  const [selected, setSelected] = useState<Finding | null>(null);
-  const [openTake, setOpenTake] = useState<Take | null>(null);
-  const [playing, setPlaying] = useState<Take | null>(null);
-  const [focusTakeId, setFocusTakeId] = useState<string | null>(null);
-  const [goToIndex, setGoToIndex] = useState<number | null>(null);
-  const [events, setEvents] = useState<TimelineEvent[]>([]);
-  const [running, setRunning] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
-  const abortRef = useRef<AbortController | null>(null);
-
-  // A run takes minutes, and the first event can be twenty seconds out. A
-  // panel with no clock on it is indistinguishable from a panel that has hung.
-  useEffect(() => {
-    if (!running) return;
-    setElapsed(0);
-    const started = Date.now();
-    const timer = window.setInterval(
-      () => setElapsed(Math.round((Date.now() - started) / 1000)),
-      1000,
-    );
-    return () => window.clearInterval(timer);
-  }, [running]);
-
-  const analyse = useCallback(
-    async (focus?: Take) => {
-      setRunning(true);
-      setEvents([]);
-      setOpenTake(null);
-      setFocusTakeId(focus ? focus.take_id : null);
-
-      const controller = new AbortController();
-      abortRef.current = controller;
-
-      try {
-        // SSE over POST, so the request carries which cut to review.
-        // EventSource cannot do that - it is GET only - which is why this
-        // reads the stream by hand instead.
-        const response = await fetch(`${apiBase}/api/analyze`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ edit_version: editVersion, scene_id: SCENE_ID }),
-          signal: controller.signal,
-        });
-        if (!response.ok || !response.body) {
-          throw new Error(`analysis failed: ${response.status}`);
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-
-          // SSE frames are separated by a blank line; anything after the last
-          // one is a partial frame and has to wait for more bytes.
-          // The separator is CRLF CRLF, not LF LF. Splitting on "\n\n" matches
-          // nothing at all against a \r\n\r\n stream, so every event gets
-          // silently swallowed and the timeline sits empty for the whole run,
-          // then goes blank again when it ends. Accept either ending.
-          const frames = buffer.split(/\r?\n\r?\n/);
-          buffer = frames.pop() ?? "";
-          for (const frame of frames) {
-            const event = parseFrame(frame);
-            if (event) setEvents((current) => absorb(current, event));
-          }
-        }
-      } catch (caught) {
-        if (!controller.signal.aborted) {
-          setEvents((current) => [
-            ...current,
-            {
-              kind: "error",
-              at: 0,
-              text: caught instanceof Error ? caught.message : String(caught),
-            },
-          ]);
-        }
-      } finally {
-        setRunning(false);
-        abortRef.current = null;
-        // The agent wrote its findings to ClickHouse during the run, so reload
-        // them rather than reconstructing them from the stream.
-        revalidator.revalidate();
-      }
-    },
-    [apiBase, editVersion, revalidator],
-  );
-
-  const visible = findings.filter((f) => f.visible_in_cut).length;
-  const high = findings.filter((f) => f.severity === "high").length;
-  const inCut = takes.filter((t) => t.cut_position != null).length;
-
-  return (
-    <div className="shell">
-      <header className="masthead">
-        <div>
-          <h1 className="wordmark">
-            Cine<span>Meridian</span>
-          </h1>
-          <p className="tagline">Continuity intelligence for the shoot and the cut.</p>
-        </div>
-        <div className="scene-line">
-          8.75°N 83.5°W
-          <br />
-          shot 3 to 15 December 2026
-        </div>
-      </header>
-
-      <section className="bar project-bar">
-        <label className="field">
-          <span>Project</span>
-          <select defaultValue={PROJECT.id}>
-            <option value={PROJECT.id}>{PROJECT.name}</option>
-          </select>
-        </label>
-
-        <a href="/try">
-          <button
-            type="button"
-            className="ghost"
-            title="Point the tool at a clip of your own. It is decoded in your browser and never uploaded."
-          >
-            Try your own clip
-          </button>
-        </a>
-
-        <label className="field">
-          <span>Cut</span>
-          <select
-            value={editVersion}
-            onChange={(event) => {
-              window.location.href = `/?edit=${event.target.value}`;
-            }}
-          >
-            {EDIT_VERSIONS.map((version) => (
-              <option key={version} value={version}>
-                {version}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div className="bar-right">
-          <button type="button" onClick={() => analyse()} disabled={running}>
-            {running ? "Analysing…" : `Analyse cut ${editVersion}`}
-          </button>
-          <button
-            type="button"
-            className="ghost"
-            onClick={() =>
-              window.open(`/report?edit=${editVersion}`, "_blank", "noopener")
-            }
-            disabled={findings.length === 0}
-          >
-            Export PDF
-          </button>
-        </div>
-      </section>
-
-      <section className="bar takes-bar">
-        <span className="field-label">
-          Takes
-          <Info>
-            A scene is covered from several camera positions, called setups, and
-            each setup is shot more than once. One of those attempts is a take.
-            This scene has {takes.length} takes across 8 setups; {inCut} of them
-            made cut {editVersion}. Every take is sampled at its head and its
-            tail, because a cut joins one shot's tail to the next shot's head.
-          </Info>
-        </span>
-        <span className="count">{takes.length}</span>
-        <span className="count-sub">{inCut} in this cut</span>
-
-        <label className="field goto">
-          <span>Go to</span>
-          <input
-            type="number"
-            min={1}
-            max={takes.length}
-            placeholder="1"
-            onChange={(event) => {
-              const value = Number(event.target.value);
-              setGoToIndex(
-                Number.isFinite(value) && value >= 1 && value <= takes.length
-                  ? value - 1
-                  : null,
-              );
-            }}
-          />
-        </label>
-
-        <span className="stat-row bar-right">
-          <span className="stat">
-            <b>{findings.length}</b>
-            <span>findings</span>
-          </span>
-          <span className="stat">
-            <b>{visible}</b>
-            <span>visible in cut</span>
-          </span>
-          <span className="stat">
-            <b>{high}</b>
-            <span>high severity</span>
-          </span>
-        </span>
-      </section>
-
-      {error ? <p className="banner">Could not reach the API: {error}</p> : null}
-
-      <Filmstrip
-        takes={takes}
-        bucket={bucket}
-        framesPerTake={framesPerTake}
-        apiBase={apiBase}
-        goToIndex={goToIndex}
-        onOpen={setOpenTake}
-      />
-
-      {running || events.length > 0 ? (
-        <AgentTimeline events={events} running={running} elapsed={elapsed} />
-      ) : (
-        <ResultView
-          report={showcase.report}
-          findings={findings}
-          comparison={{
-            outgoing: frameUrl(apiBase, bucket, showcase.pair.outgoing),
-            incoming: frameUrl(apiBase, bucket, showcase.pair.incoming),
-            grid: showcase.comparison.grid,
-            // The frozen file is JSON, so its `present_in` is a plain string
-            // until it is told what it actually is, and a run that marked
-            // nothing leaves an array TypeScript cannot see a shape in.
-            differences: showcase.comparison.differences as unknown as GridDifference[],
-            fromLabel: `${showcase.pair.outgoing.setup} ${showcase.pair.outgoing.take}`,
-            toLabel: `${showcase.pair.incoming.setup} ${showcase.pair.incoming.take}`,
-          }}
-          steps={showcase.steps.map(toTimelineEvent).filter(Boolean) as TimelineEvent[]}
-          seconds={showcase.seconds}
-          facts={sceneFacts(showcase, takes.length, findings.length)}
-          selectedId={selected?.finding_id ?? null}
-          onSelectFinding={setSelected}
-          focusTakeId={focusTakeId}
-          onClearFocus={() => setFocusTakeId(null)}
-        />
-      )}
-
-      <section className="panel invite">
-        <div>
-          <h2 style={{ marginBottom: 6 }}>Now try it on something else</h2>
-          <p className="hint" style={{ margin: 0, maxWidth: "68ch" }}>
-            The same agent, the same database, the same checks, on footage that
-            is not ours. Use the six sample clips or bring your own.
-          </p>
-        </div>
-        <button type="button" onClick={() => setTryOpen(true)}>
-          Try it yourself
-        </button>
-      </section>
-
-      {tryOpen ? <TryYourself apiBase={apiBase} onClose={() => setTryOpen(false)} /> : null}
-
-      <footer className="disclosure">
-        <strong>What is real here.</strong> Sun and moon positions are computed
-        with the NOAA solar position algorithm and are real astronomy. The tide
-        and the weather telemetry are <strong>simulated</strong>, from two
-        harmonic constituents and a physical afternoon model, and are not a
-        forecast for any place. All footage is synthetic and self-made; no film
-        or broadcast material is used, and <em>The Tide Line</em> is not a real
-        production. The agent only ever recommends: it does not modify the edit,
-        submit a render, or mark its own findings reviewed.
-      </footer>
-
-      <EvidencePair
-        finding={selected}
-        apiBase={apiBase}
-        bucket={bucket}
-        framesPerTake={framesPerTake}
-        onClose={() => setSelected(null)}
-      />
-
-      <TakeDialog
-        take={openTake}
-        bucket={bucket}
-        framesPerTake={framesPerTake}
-        apiBase={apiBase}
-        analysing={running}
-        onClose={() => setOpenTake(null)}
-        onPlay={(take) => {
-          setOpenTake(null);
-          setPlaying(take);
-        }}
-        onAnalyse={(take) => analyse(take)}
-      />
-
-      <FramePlayer
-        take={playing}
-        bucket={bucket}
-        framesPerTake={framesPerTake}
-        apiBase={apiBase}
-        onClose={() => setPlaying(null)}
-      />
-    </div>
-  );
-}
-
-
-function parseFrame(frame: string): TimelineEvent | null {
-  let kind = "";
-  let data = "";
-  for (const line of frame.split("\n")) {
-    if (line.startsWith("event:")) kind = line.slice(6).trim();
-    if (line.startsWith("data:")) data += line.slice(5).trim();
-  }
-  if (!kind || !data) return null;
-
-  let payload: Record<string, unknown> = {};
-  try {
-    payload = JSON.parse(data);
-  } catch {
-    return null;
-  }
-
-  const at = Number(payload.elapsed_ms ?? 0);
-  switch (kind) {
-    case "tool_call": {
-      const args = (payload.args ?? {}) as Record<string, string>;
-      const name = String(payload.name ?? "");
-      return {
-        kind: "tool_call",
-        at,
-        name,
-        text: describeCall(name, args),
-        detail: trim(args.query ?? Object.values(args).join(" · "), 600),
-      };
-    }
-    case "tool_result":
-      return {
-        kind: "tool_result",
-        at,
-        name: String(payload.name ?? ""),
-        ok: payload.ok !== false,
-        text: describeOutcome(
-          payload.ok !== false,
-          typeof payload.rows === "number" ? payload.rows : null,
-          String(payload.detail ?? ""),
-        ),
-      };
-    case "reasoning":
-      return { kind: "reasoning", at, text: String(payload.text ?? "") };
-    case "error":
-      return { kind: "error", at, text: String(payload.detail ?? "") };
-    case "started":
-      return { kind: "started", at, text: `reviewing ${payload.edit_version}` };
-    case "done":
-      return { kind: "done", at, text: `finished in ${(at / 1000).toFixed(1)}s` };
-    default:
-      return null;
-  }
+export async function loader() {
+  return json({ apiBase: apiBase() });
 }
 
 /**
- * Fold a result into the call it answers, so the timeline reads one line per
- * action rather than two.
+ * Three claims, side by side.
  *
- * Matched by name, walking backwards to the most recent call still waiting on
- * an answer. Tools run one at a time here, so that is unambiguous; if a result
- * ever arrives with no call to match, it is kept as its own row rather than
- * dropped, because a silently discarded event is worse than an odd looking one.
+ * The page has three separate things to say: what this is, what goes wrong
+ * without it, and how it works. Showing them one at a time made each one wait
+ * its turn, and a reader who arrives mid-rotation gets the middle of an
+ * argument. Across the full width they can be taken in at a glance and read in
+ * any order, which is how a poster's credit blocks work.
+ *
+ * They are set at slightly different heights on purpose. Three boxes ruled
+ * level read as a table of features; staggered, they read as type placed on a
+ * photograph, and the eye moves between them instead of scanning across.
  */
-function absorb(events: TimelineEvent[], incoming: TimelineEvent): TimelineEvent[] {
-  if (incoming.kind !== "tool_result") return [...events, incoming];
+const CLAIMS = [
+  {
+    question: "What this is",
+    headline: "A continuity check that runs on physics, not opinion",
+    body: "CineMeridian reviews the joins in a cut the way a script supervisor would, take by take, and files what it finds as recommendations for a person to accept or dismiss. It never touches the edit.",
+  },
+  {
+    question: "What goes wrong without it",
+    headline: "The shadow moved. Nobody wrote it down.",
+    body: "Coverage of one scene is shot hours or weeks apart, and the sun does not wait. Shadow direction, length and colour drift between takes that are meant to be one moment. The editor stops seeing it by the fortieth viewing. The audience feels it once.",
+  },
+  {
+    question: "How it works",
+    headline: "Vision turns pixels into facts. The database does the rest.",
+    body: "Gemini measures the two frames a cut actually joins, real solar geometry says where the sun was at that time and place, and ClickHouse compares every pair at once through an MCP server the agent queries itself.",
+  },
+];
 
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const candidate = events[index];
-    if (
-      candidate.kind === "tool_call" &&
-      candidate.name === incoming.name &&
-      candidate.ok === undefined
-    ) {
-      const merged = [...events];
-      merged[index] = {
-        ...candidate,
-        ok: incoming.ok,
-        outcome: incoming.text,
-        took: incoming.at - candidate.at,
-      };
-      return merged;
-    }
-  }
-  return [...events, incoming];
+export default function Home() {
+  const { apiBase } = useLoaderData<typeof loader>();
+  const [samplesOpen, setSamplesOpen] = useState(false);
+
+  return (
+    <main className="poster">
+      <div className="poster-bg" />
+      <div className="poster-scrim" />
+
+      <header className="poster-head">
+        <div>
+          <p className="poster-mark">
+            <img src="/logocine.png" alt="CineMeridian" width={240} height={90} />
+          </p>
+          <p className="poster-sub">Continuity intelligence for the shoot and the cut</p>
+        </div>
+        <span className="poster-badge">
+          Agentic Cinema <b>ClickHouse track</b>
+        </span>
+      </header>
+
+      <section className="poster-body">
+        <h1 className="sr-only">
+          CineMeridian, a continuity check that runs on physics rather than
+          opinion
+        </h1>
+        <div className="claims">
+          {CLAIMS.map((entry, index) => (
+            <article
+              className="claim"
+              key={entry.question}
+              style={{ "--claim-order": index } as React.CSSProperties}
+            >
+              <p className="claim-question">
+                <i>{String(index + 1).padStart(2, "0")}</i>
+                {entry.question}
+              </p>
+              <p className="claim-headline">{entry.headline}</p>
+              <p className="claim-body">{entry.body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <footer className="poster-foot">
+        <div className="doors">
+          <Link to="/example" className="door door-lead">
+            <b>
+              <PlayIcon />
+              Show the analysed example
+              <GoIcon />
+            </b>
+            <span>
+              A scene of thirty takes with five faults planted in it, already
+              reviewed. Opens instantly.
+            </span>
+          </Link>
+
+          <button
+            type="button"
+            className="door"
+            onClick={() => setSamplesOpen(true)}
+          >
+            <b>
+              <ReelIcon />
+              Analyse an example video
+              <GoIcon />
+            </b>
+            <span>
+              Six sample clips. Pick two and watch the agent work on them for
+              real, end to end.
+            </span>
+          </button>
+
+          <Link to="/try" className="door">
+            <b>
+              <UploadIcon />
+              Analyse your own video
+              <GoIcon />
+            </b>
+            <span>
+              Two to six clips of your own. Your browser decodes them; the files
+              never leave it.
+            </span>
+          </Link>
+        </div>
+
+        <p className="poster-facts">
+          <span>
+            <b>Gemini 3.7 Flash</b> reads the frames
+          </span>
+          <i className="dot">·</i>
+          <span>
+            <b>ClickHouse</b> queried at runtime through MCP
+          </span>
+          <i className="dot">·</i>
+          <span>
+            <b>4 of 5</b> planted faults found in the example
+          </span>
+          <i className="dot">·</i>
+          <span>No login, and nothing you upload is kept beyond a day</span>
+        </p>
+      </footer>
+
+      {samplesOpen ? (
+        <TryYourself apiBase={apiBase} onClose={() => setSamplesOpen(false)} />
+      ) : null}
+    </main>
+  );
 }
 
-function trim(text: string, limit: number): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > limit ? `${flat.slice(0, limit)}…` : flat;
+/* Drawn here rather than pulled from an icon font: three glyphs is not worth a
+   dependency, and a font is the first thing to fail on a slow connection. */
+
+function GoIcon() {
+  return (
+    <svg
+      className="door-go"
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M3.4 8h9m0 0L9.2 4.8M12.4 8 9.2 11.2"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
-
-/** Where the API will serve one demo frame from. */
-function frameUrl(
-  base: string,
-  bucket: string,
-  at: { setup: string; take: string; frame: number },
-): string {
-  const uri = `gs://${bucket}/frames/sc14/${at.setup}/${at.take}/f${String(at.frame).padStart(3, "0")}.jpg`;
-  return `${base}/api/frame?uri=${encodeURIComponent(uri)}`;
+function PlayIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="6.6" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M6.6 5.4 11 8l-4.4 2.6V5.4Z" fill="currentColor" />
+    </svg>
+  );
 }
 
-/** A frozen step, in the shape the timeline renders. */
-function toTimelineEvent(step: Record<string, unknown>): TimelineEvent | null {
-  const at = Number(step.elapsed_ms ?? 0);
-  const name = String(step.name ?? "");
-
-  if (step.kind === "tool_call") {
-    const args = (step.args ?? {}) as Record<string, string>;
-    return {
-      kind: "tool_call",
-      at,
-      name,
-      text: describeCall(name, args),
-      detail: trim(args.query ?? Object.values(args).join(" · "), 600),
-    };
-  }
-  if (step.kind === "tool_result") {
-    return {
-      kind: "tool_result",
-      at,
-      name,
-      ok: step.ok !== false,
-      text: describeOutcome(
-        step.ok !== false,
-        typeof step.rows === "number" ? step.rows : null,
-        String(step.detail ?? ""),
-      ),
-    };
-  }
-  return null;
+function ReelIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect
+        x="1.6"
+        y="3.4"
+        width="12.8"
+        height="9.2"
+        rx="1.6"
+        stroke="currentColor"
+        strokeWidth="1.3"
+      />
+      <path d="M5.2 3.4v9.2M10.8 3.4v9.2" stroke="currentColor" strokeWidth="1.1" />
+    </svg>
+  );
 }
 
-/** What this scene had to work with, in the shape the shared view renders. */
-function sceneFacts(
-  // As it arrives from the loader rather than as it sits on disk: going
-  // through JSON is what changes the empty arrays out from under it.
-  frozen: SerializeFrom<typeof loader>["showcase"],
-  takeCount: number,
-  findingCount: number,
-): ResultFact[] {
-  const light = frozen.comparison.conditions?.outgoing;
-  return [
-    {
-      label: "Takes in the scene",
-      value: String(takeCount),
-      info: "A real scene, shot over twelve days across eight camera setups. The agent's power is that it can ask across all of them at once.",
-    },
-    {
-      label: "Findings filed",
-      value: String(findingCount),
-      info: "Each one written by the agent itself, through MCP, into a queue a person still has to work through.",
-    },
-    {
-      label: "Light in the pair above",
-      value: light ? `${light.regime.replace(/_/g, " ")}, looks like ${light.time_of_day.replace(/_/g, " ")}` : "not read",
-      info: "Read from the frames alone, before any file was opened. Shadows running parallel are the sun; shadows spreading from a point are a lamp.",
-    },
-    {
-      label: "Sun and tide",
-      value: "computed, not stored",
-      info: "Sun and moon positions come from the NOAA solar position algorithm and are real astronomy. The tide is simulated from two harmonic constituents and is not a forecast for any place.",
-    },
-    {
-      label: "This run",
-      value: frozen.built_at + " UTC",
-      info: "One complete run, frozen so the page opens instantly. Re-made by scripts/build_showcase.py whenever the scene changes.",
-    },
-  ];
+function UploadIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path
+        d="M8 11.2V3.6m0 0L5.2 6.4M8 3.6l2.8 2.8"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M2.6 10.4v1.8a1.6 1.6 0 0 0 1.6 1.6h7.6a1.6 1.6 0 0 0 1.6-1.6v-1.8"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
 }

@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { json, type LoaderFunctionArgs } from "@remix-run/node";
+import { json, type LoaderFunctionArgs, type MetaFunction } from "@remix-run/node";
 import { Link, useLoaderData, useSearchParams } from "@remix-run/react";
 
 import { AgentTimeline, type TimelineEvent } from "~/components/AgentTimeline";
 import type { Grid, GridDifference } from "~/components/CutComparison";
 import { FilmRoll } from "~/components/FilmRoll";
 import { Info } from "~/components/Info";
-import { ResultView, type ResultFact } from "~/components/ResultView";
-import { FindingsMap } from "~/components/FindingsMap";
+import { Report } from "~/components/Report";
+import { ReportSheet } from "~/components/ReportSheet";
+import {
+  ResultView,
+  shortVersion,
+  type Comparison,
+  type FindingGroup,
+  type ResultFact,
+} from "~/components/ResultView";
 import { apiBase, parseRows, type Finding } from "~/lib/api";
 import {
   ClipTooLarge,
@@ -27,6 +34,8 @@ import { readMp4Metadata, type Mp4Metadata } from "~/lib/mp4meta";
  *  in quick succession. */
 const MIN_TAKES = 2;
 const MAX_TAKES = 6;
+
+export const meta: MetaFunction = () => [{ title: "CineMeridian - analyse your clips" }];
 
 export async function loader(_args: LoaderFunctionArgs) {
   return json({ apiBase: apiBase(), limits: DEFAULT_LIMITS });
@@ -115,6 +124,7 @@ export default function TryYourClips() {
   const [joins, setJoins] = useState<Join[]>([]);
   const [runStartedAt, setRunStartedAt] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
+  const [confirmRerun, setConfirmRerun] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
@@ -129,6 +139,19 @@ export default function TryYourClips() {
   const ready = ordered.length >= MIN_TAKES;
   const hasTimes = ordered.length > 0 && ordered.every((take) => take.when !== "");
   const hasPlace = lat !== "" && lon !== "";
+
+  // Worked out once and used twice: the list under the answer, and the tabs on
+  // the comparison panel.
+  const comparisons = describeJoins(joins, ordered, sceneChanges, findings, project);
+  const joinNotes = comparisons.map((join) => ({
+    key: join.key,
+    from: join.from,
+    to: join.to,
+    tone: join.tone ?? "clean",
+    status: join.status ?? "",
+  }));
+
+  const findingGroups = groupFindings(comparisons, findings, project);
 
   const skipped: string[] = [];
   if (!hasPlace) skipped.push("everything that needs the sun's position");
@@ -325,12 +348,14 @@ export default function TryYourClips() {
       <header className="masthead">
         <div>
           <h1 className="wordmark">
-            Cine<span>Meridian</span>
+            <Link to="/">
+              <img src="/logocine.png" alt="CineMeridian" width={200} height={75} />
+            </Link>
           </h1>
           <p className="tagline">Bring your own footage.</p>
         </div>
         <div className="scene-line">
-          <Link to="/">back to the demo scene</Link>
+          <Link to="/example">the analysed example</Link>
         </div>
       </header>
 
@@ -386,6 +411,7 @@ export default function TryYourClips() {
         </p>
       )}
 
+      <div className="setup-row">
       <section className="panel">
         <h2>
           Where this was filmed
@@ -470,30 +496,102 @@ export default function TryYourClips() {
         </label>
       </section>
 
-      {ordered.length >= MIN_TAKES ? (
-        <section className="panel act">
-          <div>
-            <h2 style={{ marginBottom: 6 }}>
-              {ordered.length} takes, {ordered.length - 1}{" "}
-              {ordered.length === 2 ? "join" : "joins"}
-            </h2>
-            <p className="hint" style={{ margin: 0, maxWidth: "70ch" }}>
-              {skipped.length === 0
-                ? "Every check runs: the light, the ground, and the sun."
-                : `Runs without ${joinNicely(skipped)}. Fill in the time or the position above to add those.`}
-            </p>
-          </div>
-          <button type="button" onClick={analyse} disabled={!ready || !!stage}>
-            {stage ? "Analysing…" : "Analyse this cut"}
-          </button>
-        </section>
-      ) : null}
+      {/* The count, what the run will and will not be able to check, and the
+          way to start it. Once there is an answer this same box carries it,
+          because the place somebody pressed for a verdict is where they look
+          for one. */}
+      <section className="panel act">
+        <div className="act-body">
+          <h2 style={{ marginBottom: 6 }}>
+            {ready ? (
+              <>
+                {ordered.length} takes, {ordered.length - 1}{" "}
+                {ordered.length === 2 ? "join" : "joins"}
+              </>
+            ) : (
+              "Not enough clips yet"
+            )}
+          </h2>
 
+          {report ? (
+            <>
+              <p className="act-label">
+                The answer
+                <Info>
+                  The agent is asked to open with three sentences for an editor
+                  rather than an engineer: whether these shots can be joined,
+                  and if not, what is wrong. Everything it worked through to get
+                  there is in the full report.
+                </Info>
+              </p>
+              <Report markdown={shortVersion(report)} />
+
+              {/* The agent writes about what it found. This says what it
+                  looked at, which is the half a reader cannot check: five
+                  joins, and what became of each. Without it a page showing one
+                  comparison and one finding leaves the other four joins
+                  ambiguous between clean and never read. */}
+              {joinNotes.length > 1 ? (
+                <ul className="join-notes">
+                  {joinNotes.map((note) => (
+                    <li key={note.key} className={`tone-${note.tone}`}>
+                      <b>
+                        Take {note.from} <span aria-hidden="true">→</span>{" "}
+                        {note.to}
+                      </b>
+                      <span>{note.status}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </>
+          ) : (
+            <p className="hint" style={{ margin: 0 }}>
+              {!ready
+                ? `Add ${MIN_TAKES} clips or more, in the order they would be cut.`
+                : skipped.length === 0
+                  ? "Every check runs: the light, the ground, and the sun."
+                  : `Runs without ${joinNicely(skipped)}. Fill in the time or the position to add those.`}
+            </p>
+          )}
+        </div>
+
+        <div className="act-buttons">
+          {/* Asking first only once there is something to lose. A run takes
+              minutes and reads every frame again, and the second press is
+              usually somebody exploring the button rather than asking for
+              another investigation. */}
+          <button
+            type="button"
+            onClick={() => (report ? setConfirmRerun(true) : void analyse())}
+            disabled={!ready || !!stage}
+          >
+            {stage ? "Analysing…" : report ? "Analyse again" : "Analyse this cut"}
+          </button>
+          {report ? (
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => setReportOpen(true)}
+            >
+              Show the full report
+            </button>
+          ) : null}
+        </div>
+      </section>
+      </div>
+
+      {/* The samples are fetched and decoded before anything can be chosen, and
+          that used to be a line of text at the bottom of a long page, out of
+          sight of the button that had just been pressed. */}
       {loadingSamples ? (
-        <p className="empty">
-          <span className="pulse" aria-hidden="true" />
-          {loadingSamples}…
-        </p>
+        <FilmRoll
+          stage={loadingSamples}
+          elapsed={0}
+          frames={[]}
+          showClock={false}
+          note="The clips are fetched once and decoded here in your browser. A few seconds."
+        />
       ) : null}
 
       {stage ? (
@@ -531,46 +629,81 @@ export default function TryYourClips() {
         </section>
       ) : null}
 
-      {findings.length > 0 ? (
-        <section className="panel">
-          <h2>
-            What it filed
-            <Info>
-              Each of these is a row the agent wrote into ClickHouse itself,
-              through MCP, and each one waits for a person to accept or dismiss
-              it. Nothing here is a decision the tool has made on your behalf.
-            </Info>
-          </h2>
-          <FindingsMap
-            findings={findings}
-            selectedId={null}
-            focusTakeId={null}
-            onSelect={() => undefined}
-            onClearFocus={() => undefined}
-          />
-        </section>
-      ) : null}
-
       <ResultView
         report={report}
+        showAnswer={false}
         findings={findings}
-        comparison={firstComparison(joins, ordered)}
+        comparisons={comparisons}
+        groups={findingGroups}
         steps={events}
         seconds={elapsed}
         facts={runFacts(project, conditions)}
-        onExport={
-          project
-            ? () =>
-                window.open(
-                  `/report?edit=${encodeURIComponent(project.edit_version)}` +
-                    `&scene=${encodeURIComponent(project.scene_id)}` +
-                    (runStartedAt ? `&since=${encodeURIComponent(runStartedAt)}` : ""),
-                  "_blank",
-                  "noopener",
-                )
-            : undefined
-        }
       />
+
+      {reportOpen ? (
+        <ReportSheet
+          markdown={report}
+          onClose={() => setReportOpen(false)}
+          onExport={
+            project
+              ? () =>
+                  window.open(
+                    `/report?edit=${encodeURIComponent(project.edit_version)}` +
+                      `&scene=${encodeURIComponent(project.scene_id)}` +
+                      (runStartedAt
+                        ? `&since=${encodeURIComponent(runStartedAt)}`
+                        : ""),
+                    "_blank",
+                    "noopener",
+                  )
+              : undefined
+          }
+        />
+      ) : null}
+
+      {confirmRerun ? (
+        <div
+          className="sheet-over"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setConfirmRerun(false)}
+        >
+          <div
+            className="sheet confirm"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2>Run this cut again?</h2>
+            <p>
+              The review on this page will be replaced: the answer, the joins,
+              the findings list, and the report behind that button. It takes a
+              few minutes, and every frame is read again.
+            </p>
+            <p className="hint">
+              What the last run filed stays in the database under its own
+              project, {project ? <code>{project.production_id}</code> : null}, and
+              the new run is written separately. Nothing is deleted there.
+            </p>
+            <div className="form-row" style={{ marginTop: 18 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmRerun(false);
+                  void analyse();
+                }}
+              >
+                Run it again
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => setConfirmRerun(false)}
+              >
+                Keep what I have
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <footer className="disclosure">
         <strong>Where your footage goes.</strong> The clips are decoded by your
@@ -602,6 +735,7 @@ function TakeCard({
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
 
   const choose = useCallback(
     async (file: File) => {
@@ -663,30 +797,70 @@ function TakeCard({
           }}
           hidden
         />
-        <button type="button" onClick={() => inputRef.current?.click()} disabled={!!busy}>
+        <button
+          type="button"
+          className="ghost small"
+          onClick={() => inputRef.current?.click()}
+          disabled={!!busy}
+        >
           {current.file ? "Choose a different clip" : "Choose a clip"}
         </button>
+
+        {/* The file name told nobody anything. A still from the clip says which
+            shot this is at a glance, and the clip itself is one press away,
+            played from the copy already in the browser. */}
         {current.file ? (
-          <span className="hint" style={{ margin: 0 }}>
-            {current.file.name}
-          </span>
+          <button
+            type="button"
+            className="clip-thumb"
+            onClick={() => setPlaying(true)}
+            disabled={!current.headFrame}
+          >
+            <span className="clip-thumb-still">
+              {current.headFrame ? (
+                <img src={current.headFrame.dataUrl} alt="" />
+              ) : (
+                <span className="clip-thumb-blank" />
+              )}
+              <span className="clip-thumb-play" aria-hidden="true">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                  <path d="M5.6 4 12 8l-6.4 4V4Z" fill="currentColor" />
+                </svg>
+              </span>
+            </span>
+            <em>{current.file.name}</em>
+          </button>
         ) : null}
       </div>
 
+      {/* Decoding holds the page for a second or two on a big clip, so the
+          shape of what is coming is drawn rather than described. */}
       {busy ? (
-        <p className="empty">
-          <span className="pulse" aria-hidden="true" />
-          {busy}…
-        </p>
+        <div className="clip-pair waiting-pair" style={{ marginTop: 16 }}>
+          {[0, 1].map((index) => (
+            <div key={index}>
+              <span className="waiting-frame" />
+              <span className="waiting-line waiting-title" />
+            </div>
+          ))}
+          <p className="empty" style={{ gridColumn: "1 / -1", margin: 0 }}>
+            <span className="pulse" aria-hidden="true" />
+            {busy}…
+          </p>
+        </div>
       ) : null}
       {problem ? <p className="banner">{problem}</p> : null}
 
-      {current.headFrame && current.tailFrame ? (
+      {current.headFrame && current.tailFrame && !busy ? (
         <>
           <div className="clip-pair" style={{ marginTop: 16 }}>
             {([current.headFrame, current.tailFrame] as const).map((frame, index) => (
               <figure key={index}>
-                <img src={frame.dataUrl} alt={`${frame.role} frame`} />
+                <img
+                  className="frame-strip"
+                  src={frame.dataUrl}
+                  alt={`${frame.role} frame`}
+                />
                 <figcaption>
                   <b>{index === 0 ? "First frame" : "Last frame"}</b>
                   {frame.at.toFixed(2)}s
@@ -716,7 +890,56 @@ function TakeCard({
           </label>
         </>
       ) : null}
+
+      {playing && current.file ? (
+        <ClipPlayer file={current.file} onClose={() => setPlaying(false)} />
+      ) : null}
     </section>
+  );
+}
+
+/**
+ * The clip itself, played from the file the browser already has.
+ *
+ * An object URL rather than an upload: this page promises the footage never
+ * leaves the machine, and playing it back is not the place to make that untrue.
+ * The URL is revoked when the sheet closes, or the browser holds the whole file
+ * in memory for as long as the tab is open.
+ */
+function ClipPlayer({ file, onClose }: { file: File; onClose: () => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const made = URL.createObjectURL(file);
+    setUrl(made);
+    return () => URL.revokeObjectURL(made);
+  }, [file]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="sheet-over" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="sheet player" onClick={(event) => event.stopPropagation()}>
+        <div className="sheet-head">
+          <h2 className="sheet-title">{file.name}</h2>
+          <button type="button" className="ghost small" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        {url ? (
+          // eslint-disable-next-line jsx-a11y/media-has-caption
+          <video className="clip-video" src={url} controls autoPlay playsInline />
+        ) : (
+          <span className="waiting-frame" style={{ height: 320 }} />
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1041,51 +1264,140 @@ function ProcessSummary({
 }
 
 
-/**
- * The three sentences the reader came for, and nothing else.
- *
- * The agent is asked to open with a section headed "The short version" saying
- * in plain words whether these shots can be cut together. That is what belongs
- * on the page; the rest is for whoever wants to check the working, and it goes
- * behind a button. When the section is missing, the opening paragraphs stand in
- * rather than nothing at all.
- */
-function shortVersion(markdown: string): string {
-  const match = /##[ \t]*The short version[ \t]*\n([\s\S]*?)(?=\n#{1,3}[ \t]|$)/i.exec(
-    markdown,
-  );
-  if (match) return match[1].trim();
 
-  // No such section: the opening paragraphs are the next best thing, and are
-  // still a great deal closer to an answer than the whole report would be.
-  const body = markdown.replace(/^#.*$/m, "").trim();
-  return body.split(/\n\s*\n/).slice(0, 2).join("\n\n");
+
+/**
+ * Every join, as the shared view wants them, and what happened at each.
+ *
+ * The status is worked out here rather than asked of the model: whether a join
+ * was ruled a scene change, whether the agent filed anything against it, and
+ * whether the grid marked a cell are all facts this page already holds. A
+ * reader who sees one comparison and one finding needs to know that the other
+ * joins were read and came back clean, which is a different claim from not
+ * having been read.
+ */
+function describeJoins(
+  joins: Join[],
+  takes: TakeState[],
+  changes: SceneChange[],
+  findings: Finding[],
+  project: Project | null,
+): Array<Comparison & { key: string; from: number; to: number }> {
+  return joins.flatMap((join) => {
+    const outgoing = takes[join.from - 1]?.tailFrame?.dataUrl;
+    const incoming = takes[join.to - 1]?.headFrame?.dataUrl;
+    if (!outgoing || !incoming) return [];
+
+    const sceneChange = changes.some(
+      (change) => change.from === join.from && change.to === join.to,
+    );
+    // Both ends, not either. A finding about the join between takes two and
+    // three names both of them, and matching on one end alone credited it to
+    // the join before it as well, which said two joins had a finding when the
+    // agent had filed exactly one.
+    const filed = project
+      ? findings.filter((finding) => {
+          const from = takeId(project, join.from);
+          const to = takeId(project, join.to);
+          return (
+            (finding.take_a === from && finding.take_b === to) ||
+            (finding.take_a === to && finding.take_b === from)
+          );
+        }).length
+      : 0;
+
+    const tone: Comparison["tone"] = sceneChange
+      ? "scene"
+      : filed > 0 || join.differences.length > 0
+        ? "marked"
+        : "clean";
+
+    return [
+      {
+        key: `${join.from}-${join.to}`,
+        from: join.from,
+        to: join.to,
+        outgoing,
+        incoming,
+        grid: join.grid,
+        differences: join.differences,
+        fromLabel: `Take ${join.from}`,
+        toLabel: `Take ${join.to}`,
+        tone,
+        status: sceneChange
+          ? "a scene change, so not checked for continuity"
+          : filed > 0
+            ? `${filed} ${filed === 1 ? "finding" : "findings"} filed`
+            : join.differences.length > 0
+              ? `${join.differences.length} marked on the grid`
+              : "nothing found",
+      },
+    ];
+  });
 }
 
-
 /**
- * The first join, as the shared view wants it.
+ * The filed list, split by the join each finding belongs to.
  *
- * One comparison is shown rather than all of them: a page of side-by-side pairs
- * is a contact sheet, and what a reader needs first is the one that carries the
- * finding. The rest are in the report.
+ * A cut of three takes has two joins, and a list that only shows the join that
+ * produced something says nothing about the other. Whether it was read and
+ * came back clean, or was skipped as a scene change, or was never reached, are
+ * three different answers, and the page holds all three already.
  */
-function firstComparison(joins: Join[], takes: TakeState[]) {
-  const join = joins.find((candidate) => candidate.differences.length > 0) ?? joins[0];
-  if (!join) return null;
+function groupFindings(
+  comparisons: Array<Comparison & { key: string; from: number; to: number }>,
+  findings: Finding[],
+  project: Project | null,
+): FindingGroup[] {
+  if (!project || comparisons.length === 0) return [];
 
-  const outgoing = takes[join.from - 1]?.tailFrame?.dataUrl;
-  const incoming = takes[join.to - 1]?.headFrame?.dataUrl;
-  if (!outgoing || !incoming) return null;
+  const claimed = new Set<string>();
 
-  return {
-    outgoing,
-    incoming,
-    grid: join.grid,
-    differences: join.differences,
-    fromLabel: `Take ${join.from}`,
-    toLabel: `Take ${join.to}`,
-  };
+  const groups: FindingGroup[] = comparisons.map((join) => {
+    const from = takeId(project, join.from);
+    const to = takeId(project, join.to);
+    const mine = findings.filter(
+      (finding) =>
+        (finding.take_a === from && finding.take_b === to) ||
+        (finding.take_a === to && finding.take_b === from),
+    );
+    mine.forEach((finding) => claimed.add(finding.finding_id));
+
+    return {
+      key: join.key,
+      label: `${join.fromLabel} to ${join.toLabel}`,
+      status: join.status ?? "",
+      tone: join.tone ?? "clean",
+      findings: mine,
+      note:
+        join.tone === "scene"
+          ? "These two shots are not the same place, so this is a scene change rather than a cut inside a scene. Continuity rules do not apply across it, and nothing was checked."
+          : join.differences.length > 0
+            ? "The grid marked a difference here, and the agent read it and did not think it worth filing. What it marked is on the frames above."
+            : "Read, and nothing was filed. The two frames agreed on the light, the ground and the sun.",
+    };
+  });
+
+  // Findings that name one take rather than a join: a slate that disagrees
+  // with the sun belongs to a take, not to the cut beside it.
+  const loose = findings.filter((finding) => !claimed.has(finding.finding_id));
+  if (loose.length > 0) {
+    groups.push({
+      key: "loose",
+      label: "Not about one join",
+      status: `${loose.length} filed`,
+      tone: "marked",
+      findings: loose,
+      note: "",
+    });
+  }
+
+  return groups;
+}
+
+/** The id the ingest gives a take, so a finding can be traced back to a join. */
+function takeId(project: Project, position: number): string {
+  return `${project.scene_id}_t${String(position).padStart(2, "0")}`;
 }
 
 /** What this project was given, in the shape the shared view renders. */

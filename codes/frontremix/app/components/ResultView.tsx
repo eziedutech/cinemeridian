@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { CutComparison, type Grid, type GridDifference } from "~/components/CutComparison";
 import { FindingsMap } from "~/components/FindingsMap";
 import { Info } from "~/components/Info";
 import { Report } from "~/components/Report";
+import { ReportSheet } from "~/components/ReportSheet";
 import { AgentTimeline, type TimelineEvent } from "~/components/AgentTimeline";
 import type { Finding } from "~/lib/api";
 
@@ -28,10 +29,35 @@ export type ResultFact = {
  * that opens with its own working buries the answer; one that never shows its
  * working could have come from a script with narration.
  */
+export type Comparison = {
+  outgoing: string;
+  incoming: string;
+  grid: Grid;
+  differences: GridDifference[];
+  fromLabel: string;
+  toLabel: string;
+  /** What was found at this join, in a few words. Shown on its tab. */
+  status?: string;
+  /** Which kind of thing that was, so the tab can be marked. */
+  tone?: "clean" | "marked" | "scene";
+};
+
+export type FindingGroup = {
+  key: string;
+  label: string;
+  status: string;
+  tone: "clean" | "marked" | "scene";
+  findings: Finding[];
+  /** Why this join produced nothing, when it produced nothing. */
+  note: string;
+};
+
 export function ResultView({
   report,
   findings,
   comparison,
+  comparisons,
+  groups,
   steps,
   seconds,
   facts,
@@ -40,17 +66,18 @@ export function ResultView({
   focusTakeId = null,
   onClearFocus,
   onExport,
+  showAnswer = true,
 }: {
   report: string;
   findings: Finding[];
-  comparison?: {
-    outgoing: string;
-    incoming: string;
-    grid: Grid;
-    differences: GridDifference[];
-    fromLabel: string;
-    toLabel: string;
-  } | null;
+  comparison?: Comparison | null;
+  /** Every join in the cut, when there is more than one. The reader picks
+   *  which to look at; the grid can only hold one pair at a time. */
+  comparisons?: Comparison[];
+  /** The filed list, split by join. Given this, the section shows a block per
+   *  join rather than one flat list, so a join that produced nothing still
+   *  says so in its own words. */
+  groups?: FindingGroup[];
   steps: TimelineEvent[];
   seconds: number;
   facts: ResultFact[];
@@ -61,13 +88,33 @@ export function ResultView({
   /** Offered where the answer is, because a review somebody wants to keep is
    *  one they have just read. */
   onExport?: () => void;
+  /** Off where the page puts the answer somewhere of its own, so the reader
+   *  is not told the same thing twice on one screen. */
+  showAnswer?: boolean;
 }) {
   const [reportOpen, setReportOpen] = useState(false);
   const [showSteps, setShowSteps] = useState(false);
+  const [joinIndex, setJoinIndex] = useState(0);
+  const [steered, setSteered] = useState(false);
+
+  // One join or many: the single `comparison` is the front page, which has one
+  // cut to show and no tabs to draw.
+  const joins = comparisons ?? (comparison ? [comparison] : []);
+  const shown = joins[Math.min(joinIndex, joins.length - 1)] ?? null;
+  const quiet = joins.length > 1 ? joins.filter((join) => join.tone === "clean") : [];
+
+  // Open on the join that has something to show, until the reader picks for
+  // themselves. Opening on the first join means a cut whose only fault is at
+  // the end opens on a pair of frames that agree, which reads as the answer.
+  const firstMarked = joins.findIndex((join) => join.tone !== "clean");
+  useEffect(() => {
+    if (steered) return;
+    setJoinIndex(firstMarked === -1 ? 0 : firstMarked);
+  }, [firstMarked, steered]);
 
   return (
     <>
-      {report ? (
+      {report && showAnswer ? (
         <section className="panel verdict-panel">
           <h2>
             The answer
@@ -79,20 +126,13 @@ export function ResultView({
             </Info>
           </h2>
           <Report markdown={shortVersion(report)} />
-          <div className="form-row">
-            <button type="button" onClick={() => setReportOpen(true)}>
-              Show the full report
-            </button>
-            {onExport ? (
-              <button type="button" className="ghost" onClick={onExport}>
-                Export PDF
-              </button>
-            ) : null}
-          </div>
+          <button type="button" onClick={() => setReportOpen(true)}>
+            Show the full report
+          </button>
         </section>
       ) : null}
 
-      {comparison ? (
+      {shown ? (
         <section className="panel">
           <h2>
             What changed across the cut
@@ -104,18 +144,88 @@ export function ResultView({
               2.6 on an unchanged frame.
             </Info>
           </h2>
+          {joins.length > 1 ? (
+            <>
+              <p className="hint" style={{ marginTop: -4 }}>
+                Every join was read, one at a time, and each was read once. Pick
+                one to see the two frames it puts side by side.
+              </p>
+              <div className="join-tabs">
+                {joins.map((join, index) => (
+                  <button
+                    key={join.fromLabel + join.toLabel}
+                    type="button"
+                    className={`join-tab${index === joinIndex ? " on" : ""} tone-${join.tone ?? "clean"}`}
+                    aria-pressed={index === joinIndex}
+                    onClick={() => {
+                      setJoinIndex(index);
+                      setSteered(true);
+                    }}
+                  >
+                    <b>
+                      {join.fromLabel} <span aria-hidden="true">→</span>{" "}
+                      {join.toLabel}
+                    </b>
+                    {join.status ? <em>{join.status}</em> : null}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+
           <CutComparison
-            outgoing={comparison.outgoing}
-            incoming={comparison.incoming}
-            grid={comparison.grid}
-            differences={comparison.differences}
-            fromLabel={comparison.fromLabel}
-            toLabel={comparison.toLabel}
+            outgoing={shown.outgoing}
+            incoming={shown.incoming}
+            grid={shown.grid}
+            differences={shown.differences}
+            fromLabel={shown.fromLabel}
+            toLabel={shown.toLabel}
           />
         </section>
       ) : null}
 
-      {findings.length > 0 ? (
+      {groups && groups.length > 0 ? (
+        <section className="panel">
+          <h2>
+            What it filed
+            <Info>
+              Each card is a row the agent wrote into ClickHouse itself, through
+              the same MCP server it reads with, and each waits for a person to
+              accept or dismiss it. Nothing here is a decision the tool has
+              taken on anybody's behalf.
+            </Info>
+          </h2>
+          <p className="hint">
+            {findings.length} recorded across {groups.length}{" "}
+            {groups.length === 1 ? "join" : "joins"}. Every join is below,
+            including the ones that came back with nothing: an empty join is a
+            result, and it is not the same as a join nobody looked at.
+          </p>
+
+          <div className="join-groups">
+            {groups.map((group) => (
+              <section className={`join-group tone-${group.tone}`} key={group.key}>
+                <header className="join-group-head">
+                  <b>{group.label}</b>
+                  <em>{group.status}</em>
+                </header>
+                {group.findings.length > 0 ? (
+                  <FindingsMap
+                    bare
+                    findings={group.findings}
+                    selectedId={selectedId}
+                    focusTakeId={focusTakeId}
+                    onSelect={onSelectFinding ?? (() => undefined)}
+                    onClearFocus={onClearFocus ?? (() => undefined)}
+                  />
+                ) : (
+                  <p className="join-group-note">{group.note}</p>
+                )}
+              </section>
+            ))}
+          </div>
+        </section>
+      ) : findings.length > 0 ? (
         <section className="panel">
           <h2>
             What it filed
@@ -133,9 +243,26 @@ export function ResultView({
             onSelect={onSelectFinding ?? (() => undefined)}
             onClearFocus={onClearFocus ?? (() => undefined)}
           />
+
+          {/* Why this list is shorter than the cut. A finding names the join it
+              belongs to, so a join that appears nowhere here is one the agent
+              read and had nothing to say about, and that is worth saying out
+              loud rather than leaving to be inferred from an absence. */}
+          {quiet.length > 0 ? (
+            <p className="hint" style={{ marginTop: 14, marginBottom: 0 }}>
+              {quiet.length === 1
+                ? "The other join was read and nothing was filed against it: "
+                : `The other ${quiet.length} joins were read and nothing was filed against them: `}
+              {quiet
+                .map((join) => `${join.fromLabel} to ${join.toLabel}`)
+                .join(", ")}
+              .
+            </p>
+          ) : null}
         </section>
       ) : null}
 
+      <div className="result-pair">
       {facts.length > 0 ? (
         <section className="panel">
           <h2>
@@ -186,30 +313,14 @@ export function ResultView({
           ) : null}
         </section>
       ) : null}
+      </div>
 
       {reportOpen ? (
-        <div
-          className="sheet-over"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setReportOpen(false)}
-        >
-          <div className="sheet" onClick={(event) => event.stopPropagation()}>
-            <div className="sheet-head">
-              <h2>The full report</h2>
-              <button
-                type="button"
-                className="ghost small"
-                onClick={() => setReportOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="sheet-body">
-              <Report markdown={report} />
-            </div>
-          </div>
-        </div>
+        <ReportSheet
+          markdown={report}
+          onExport={onExport}
+          onClose={() => setReportOpen(false)}
+        />
       ) : null}
     </>
   );

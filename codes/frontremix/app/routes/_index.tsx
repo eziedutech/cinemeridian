@@ -101,12 +101,12 @@ export default function Home() {
           <Link to="/example" className="door door-lead">
             <b>
               <PlayIcon />
-              Show the analysed example
+              Show a worked example
               <GoIcon />
             </b>
             <span>
-              A scene of thirty takes with five faults planted in it, already
-              reviewed. Opens instantly.
+              Six clips already run through the tool: five joins, one scene
+              change, three findings. Opens instantly.
             </span>
           </Link>
 
@@ -149,7 +149,7 @@ export default function Home() {
           </span>
           <i className="dot">·</i>
           <span>
-            <b>4 of 5</b> planted faults found in the example
+            <b>4 of 5</b> planted faults found in the demo scene
           </span>
           <i className="dot">·</i>
           <span>No login, and nothing you upload is kept beyond a day</span>

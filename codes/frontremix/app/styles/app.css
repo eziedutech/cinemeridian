@@ -1511,7 +1511,8 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   .setup-row { grid-template-columns: 1fr; }
 }
 
-.setup-row > .panel { margin-top: 0; height: 100%; }
+.setup-row { margin-bottom: 24px; }
+.setup-row > .panel { margin-top: 0; margin-bottom: 0; height: 100%; }
 
 .act { display: flex; flex-direction: column; gap: 14px; }
 .act-body { min-width: 0; }
@@ -1595,6 +1596,21 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   max-width: 84ch;
 }
 
+/* A link that has to sit in a row of buttons and be pressed like one. */
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14.5px;
+  font-weight: 600;
+  padding: 11px 22px;
+  border-radius: 7px;
+  background: var(--sand);
+  color: var(--ground);
+  text-decoration: none;
+}
+
+.button-link:hover { background: #dbbe97; color: var(--ground); }
+
 /* Which join is being looked at, and what came of the others.
  *
  * The tabs carry their own verdict rather than a number alone: a reader
@@ -1671,7 +1687,8 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   .result-pair { grid-template-columns: 1fr; }
 }
 
-.result-pair > .panel { margin-top: 0; height: 100%; }
+.result-pair { margin-bottom: 24px; }
+.result-pair > .panel { margin-top: 0; margin-bottom: 0; height: 100%; }
 
 /* The agent's report, as prose rather than a log line */
 

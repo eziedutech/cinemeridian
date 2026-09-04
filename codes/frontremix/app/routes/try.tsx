@@ -213,6 +213,29 @@ export default function TryYourClips() {
       setStage("Collecting what it filed");
       setFindings(await fetchProjectFindings(apiBase, created, startedAt));
 
+      // With ?freeze=1, the whole run is left on `window` so it can be lifted
+      // out and committed as the worked example. The example page is then a
+      // real run of this page rather than a second product built to look like
+      // one, which is the only way the two can be guaranteed to agree.
+      if (new URLSearchParams(window.location.search).has("freeze")) {
+        (window as unknown as { cineFreeze?: unknown }).cineFreeze = {
+          project: created,
+          report: written,
+          startedAt,
+          seconds: Math.round((Date.now() - startedAtMs) / 1000),
+          place: hasPlace ? { latitude: Number(lat), longitude: Number(lon) } : null,
+          conditions: seen.conditions,
+          sceneChanges: seen.changes,
+          joins: seen.joins,
+          takes: ordered.map((take, index) => ({
+            position: index + 1,
+            name: take.file?.name ?? `take ${index + 1}`,
+            when: take.when,
+            duration: take.duration,
+          })),
+        };
+      }
+
       // The findings are rows anyone can fetch again; the answer and the note
       // of what the run was given live only in this tab, so the printable page
       // is handed them here rather than asked to invent them.
@@ -355,7 +378,7 @@ export default function TryYourClips() {
           <p className="tagline">Bring your own footage.</p>
         </div>
         <div className="scene-line">
-          <Link to="/example">the analysed example</Link>
+          <Link to="/example">a worked example</Link>
         </div>
       </header>
 

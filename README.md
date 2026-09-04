@@ -632,6 +632,53 @@ finding is filed from it. The join reads "1 marked on the grid" rather than
 "1 finding filed", which is the honest distinction between something worth
 looking at and something proved wrong.
 
+### Every anomaly, and where it stands
+
+Three answers, not one. The tool accuses only what physics can contradict, it
+marks what changed without claiming to know why, and it says nothing at all
+about the things its method is wrong for. The same three tables are on the
+front page, behind **What it catches, and what it does not**.
+
+**Filed as a finding.** The physics was violated and the agent argued it, with
+the numbers on the record.
+
+| Anomaly | What it can do now | What it still cannot do |
+|---|---|---|
+| The sun moved too far across a join | NOAA solar geometry computed for the time and place given, with no vision involved at all | Needs a position and a clock; without them this check is silent |
+| A shadow swung further than the sun did | The measured swing of the shadow against the computed swing of the sun | Cannot separate a camera that moved from a time that moved, so both are put to the reader |
+| Something that only accumulates, running backwards | Footprints, litter, tyre tracks: a count that falls means the order is wrong or the continuity is | Rests on the model counting objects steadily, which is the weakest reading it does |
+| The frames against the file's own timestamp | A shadow measured at a moment the sun was below the horizon, which no tolerance explains | Needs a sun shadow to exist; an interior at night has nothing to say |
+| The light itself changing across a join | Direct beam, shaded daylight, lamps or mixed, read from the geometry of the shadows rather than the warmth of the picture | Cannot tell a deliberate lighting change from a mistake |
+| Anything measured on both sides that then changed | The tail of the outgoing take against the head of the incoming one, which is the moment the audience sees as one | Only for things already measured; it finds nothing that was never read |
+| Measured on one side of a join only | Surfaced and labelled weak on purpose | One reading per frame, so a missing row cannot be told from a thing that went unmentioned |
+
+**Marked, but not accused.** Two frames disagree and the difference is shown on
+them. Nobody claims to know why, so nothing is filed.
+
+| Anomaly | What it can do now | What it still cannot do |
+|---|---|---|
+| A loose object on the ground, in the room, on the furniture | The grid names the cell and a box is drawn on the frame | Never written to ClickHouse, never handed to the agent, never filed |
+| What a person is holding changes: a bottle that becomes a can | Likely marked, being large in frame and plainly separate from the body | The tool does not know the object is held, so it cannot argue it |
+| A fixed thing that moved: a wall clock, a picture | Told apart from a movable thing, which is the heavier of the two marks | Stops on the page, the same as the rest |
+| A cut between scenes rather than inside one | Judged from the place, and continuity is deliberately not checked across it | Judged from one pair of frames, so two similar places can be read as one |
+
+**Out of reach.** Not weakness so much as the wrong instrument. Each of these
+needs a method this tool does not use.
+
+| Anomaly | What it can do now | What it still cannot do |
+|---|---|---|
+| A shawl on the other shoulder, a braid that sits differently | Nothing | Attached to a person, and people are ignored on purpose |
+| Two buttons that become three, a badge that appears | Nothing | Too small for a grid; needs the figure found and the garment aligned |
+| Hair, make-up, sweat, tears | Nothing | The same, and finer still |
+| A fault in the middle of a clip | Nothing | Only the first and last frames are read, because those are what a cut joins |
+| Eyeline, and the 180 degree line | Nothing | Needs where people are looking and how the space is laid out, not how it is lit |
+| Movement, hand position, direction of travel | Nothing | Needs motion read, not two still frames |
+| Dialogue and sound | Nothing | No audio is read at any point |
+| How many people are in the background | Nothing | People are ignored |
+| Crew, equipment or a reflection in shot | Nothing | Not a comparison of two sides but a judgement about one frame |
+| Wet and dry ground, rain, snow | Partly: a change on the ground can be marked | Not reasoned about as weather, and not joined to the weather rows |
+| Lens, framing, colour, grade | Nothing | Continuity of the picture rather than of the world |
+
 Three things would have to be true to close that gap, and each is real work
 rather than a setting.
 

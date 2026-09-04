@@ -2121,3 +2121,67 @@ button.small { padding: 5px 12px; font-size: 12px; }
 }
 
 .disclosure strong { color: var(--ink-dim); font-weight: 600; }
+
+/* --- what it catches, and what it does not ------------------------------ */
+
+.sheet.scope-sheet { width: min(1080px, 100%); }
+
+.scope-lead {
+  margin: 0 0 26px;
+  max-width: 86ch;
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--ink-dim);
+}
+
+.scope-block { margin-bottom: 30px; }
+.scope-block:last-child { margin-bottom: 0; }
+
+.scope-block h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+
+.scope-note {
+  margin: 0 0 12px;
+  max-width: 82ch;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+}
+
+/* The three columns are the whole point, so on a narrow sheet the table
+   scrolls in its own box rather than folding a column underneath. */
+.scope-table { overflow-x: auto; }
+
+.scope-table table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.scope-table th {
+  padding: 8px 14px 8px 0;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  border-bottom: 1px solid var(--line);
+}
+
+.scope-table td {
+  padding: 11px 14px 11px 0;
+  vertical-align: top;
+  line-height: 1.55;
+  color: var(--ink-dim);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.scope-table td:first-child { width: 27%; padding-right: 22px; }
+.scope-table td b { color: var(--ink); font-weight: 500; }
+.scope-table tr:last-child td { border-bottom: 0; }

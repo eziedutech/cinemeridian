@@ -434,6 +434,26 @@
 .poster-facts span { display: inline-flex; gap: 7px; align-items: baseline; }
 .poster-facts .dot { color: rgba(238, 234, 226, 0.24); }
 
+/* Reads as one more fact until the pointer says otherwise, which is the point:
+   it belongs to that line, and a button drawn as a button there would compete
+   with the three doors above it. */
+.fact-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  color: rgba(201, 170, 125, 0.82);
+  border-bottom: 1px solid rgba(201, 170, 125, 0.3);
+  cursor: pointer;
+}
+
+.fact-link:hover {
+  background: none;
+  color: rgba(224, 199, 160, 0.98);
+  border-bottom-color: rgba(224, 199, 160, 0.7);
+}
+
 /* Short screens give the picture back its room by trimming the type first,
    and drop the stagger, which is the first thing to cost height. */
 @media (max-height: 720px) {

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { json, type LinksFunction, type MetaFunction } from "@remix-run/node";
 import { Link, useLoaderData } from "@remix-run/react";
 
+import { ScopeSheet } from "~/components/ScopeSheet";
 import { TryYourself } from "~/components/TryYourself";
 import { apiBase } from "~/lib/api";
 import styles from "~/styles/home.css?url";
@@ -55,6 +56,7 @@ const CLAIMS = [
 export default function Home() {
   const { apiBase } = useLoaderData<typeof loader>();
   const [samplesOpen, setSamplesOpen] = useState(false);
+  const [scopeOpen, setScopeOpen] = useState(false);
 
   return (
     <main className="poster">
@@ -153,12 +155,21 @@ export default function Home() {
           </span>
           <i className="dot">·</i>
           <span>No login, and nothing you upload is kept beyond a day</span>
+          <i className="dot">·</i>
+          {/* Offered on the poster rather than buried in a page, because the
+              first question anybody asks of a checker is what it misses, and
+              answering it up front is worth more than the claim above it. */}
+          <button type="button" className="fact-link" onClick={() => setScopeOpen(true)}>
+            What it catches, and what it does not
+          </button>
         </p>
       </footer>
 
       {samplesOpen ? (
         <TryYourself apiBase={apiBase} onClose={() => setSamplesOpen(false)} />
       ) : null}
+
+      {scopeOpen ? <ScopeSheet onClose={() => setScopeOpen(false)} /> : null}
     </main>
   );
 }

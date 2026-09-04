@@ -48,7 +48,18 @@ DATABASE = "cinemeridian"
 #: The tables a visitor's project is made of, and the only ones this user may
 #: write. `continuity_findings` is deliberately absent: findings are the agent's
 #: to write, and nothing else should be able to put one there.
-PROJECT_TABLES = ("takes", "ephemeris", "frame_observations", "edit_decisions")
+PROJECT_TABLES = (
+    "takes",
+    "ephemeris",
+    "frame_observations",
+    "edit_decisions",
+    # What has already been read from the clips this project ships, so a
+    # visitor can start from it instead of paying for it again. Written by
+    # the same connection that writes a project, and keyed by our own file
+    # names, so nobody else's footage can land here.
+    "sample_clip_readings",
+    "sample_pair_readings",
+)
 
 
 def main() -> int:

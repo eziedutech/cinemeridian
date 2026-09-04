@@ -973,6 +973,9 @@ async def ground(
     columns: int = Form(4),
     rows: int = Form(3),
     reads: int = Form(0),
+    outgoing_clip: str = Form(""),
+    incoming_clip: str = Form(""),
+    use_cache: bool = Form(False),
 ) -> dict[str, Any]:
     """What is on the ground in one shot and not the other.
 
@@ -1002,6 +1005,17 @@ async def ground(
 
     payload = await _read_frame(pair, "pair")
     settings = get_settings()
+
+    # Our own clips are fixed files, so a reading of one pair of them is a fact
+    # about those pixels rather than about who asked for it. Keeping it lets the
+    # next visitor start from it, and this is the only kind of clip it is ever
+    # kept for: the key is a file name we ship, and nobody else's upload can
+    # collide with one.
+    sample_pair = _sample_pair(outgoing_clip, incoming_clip)
+    if sample_pair and use_cache:
+        kept = await _kept_pair_reading(*sample_pair, columns, rows)
+        if kept is not None:
+            return kept
 
     # A project with six takes has five adjacent pairs, and reading each three
     # times is fifteen calls on top of the ingest. The gate question, whether
@@ -1036,7 +1050,7 @@ async def ground(
         for side in ("outgoing", "incoming")
     }
 
-    return {
+    answer = {
         "grid": {"columns": columns, "rows": rows},
         "reads": len(answers),
         "reads_expected": reads or READS_PER_FRAME,
@@ -1062,7 +1076,76 @@ async def ground(
             }
             for item in differences
         ],
+        "from_cache": False,
     }
+
+    # Written whether or not this run asked to reuse anything, so that trying
+    # the samples is what fills the shelf for everybody who comes after.
+    if sample_pair:
+        await _keep_pair_reading(*sample_pair, answer, settings.model, len(answers))
+
+    return answer
+
+
+def _sample_pair(outgoing: str, incoming: str) -> tuple[str, str] | None:
+    """The pair, if both sides are clips we ship, and nothing otherwise.
+
+    The list is read at call time rather than at import, because it is
+    declared further down this file beside the endpoint that serves it.
+    """
+    ours = {clip["file"] for clip in SAMPLE_CLIPS}
+    if outgoing in ours and incoming in ours:
+        return outgoing, incoming
+    return None
+
+
+async def _kept_pair_reading(
+    outgoing: str, incoming: str, columns: int, rows: int
+) -> dict[str, Any] | None:
+    """A reading of this exact ordered pair, if one was kept for this grid."""
+    from app.tools.candidates import _rows_from, _text
+
+    sql = (
+        "SELECT payload FROM cinemeridian.sample_pair_readings FINAL "
+        f"WHERE outgoing = {_text(outgoing)} AND incoming = {_text(incoming)} LIMIT 1"
+    )
+    try:
+        tool = await _ingest_tool()
+        result = str(await tool.run_async(args={"query": sql}, tool_context=None))
+        _, kept_rows = _rows_from(result)
+        if not kept_rows:
+            return None
+        kept = json.loads(str(kept_rows[0][0]))
+    except Exception:  # noqa: BLE001 - a miss and a failure both mean read it live
+        logger.exception("could not read a kept pair reading")
+        return None
+
+    # A grid of another shape names cells that do not exist here.
+    grid = kept.get("grid") or {}
+    if grid.get("columns") != columns or grid.get("rows") != rows:
+        return None
+
+    kept["from_cache"] = True
+    return kept
+
+
+async def _keep_pair_reading(
+    outgoing: str, incoming: str, answer: dict[str, Any], model: str, reads: int
+) -> None:
+    """Keep what was just read. Failing costs the next visitor time, nothing more."""
+    from app.tools.candidates import _text
+
+    sql = (
+        "INSERT INTO cinemeridian.sample_pair_readings "
+        "(outgoing, incoming, read_at, model, reads, payload) VALUES ("
+        f"{_text(outgoing)}, {_text(incoming)}, now(), {_text(model)}, "
+        f"{int(reads)}, {_text(json.dumps(answer))})"
+    )
+    try:
+        tool = await _ingest_tool()
+        await tool.run_async(args={"query": sql}, tool_context=None)
+    except Exception:  # noqa: BLE001
+        logger.exception("could not keep a pair reading")
 
 
 def _conditions_payload(conditions: Any) -> dict[str, Any] | None:
@@ -1105,6 +1188,11 @@ async def _read_pair(payload: bytes, settings: Any, reads: int) -> list[str]:
     readings = [r for r in attempts if not isinstance(r, BaseException)]
     if len(readings) < reads:
         logger.warning("the pair was read %s times of %s", len(readings), reads)
+        # Say why. A shortfall used to be visible without its cause, which made
+        # a failure here indistinguishable from a quiet refusal.
+        for attempt in attempts:
+            if isinstance(attempt, BaseException):
+                logger.warning("a pair read failed: %r", attempt)
     return readings
 
 
@@ -1120,6 +1208,7 @@ async def create_project(
     latitude: float | None = Form(None),
     longitude: float | None = Form(None),
     store_frames: bool = Form(False),
+    use_cache: bool = Form(False),
 ) -> dict[str, Any]:
     """Turn a visitor's clips into a production the agent can investigate.
 
@@ -1171,6 +1260,9 @@ async def create_project(
     settings = get_settings()
     project = Project.new()
     takes = []
+    #: How many frame readings this run started from rather than paid for. The
+    #: page says the number rather than implying the work was done again.
+    reused = 0
 
     # A project whose clips carry no time gets an ordered sequence instead, and
     # is marked so. Mixing real times with invented ones would produce gaps that
@@ -1214,12 +1306,37 @@ async def create_project(
         # a take with no measurements is still a take: it has a time, a place
         # and a position in the cut, and the agent can say what it could not
         # see rather than never being asked.
-        head_observations = await _observe_or_none(
-            head_bytes, f"take {index} head", settings
+        # Our own clips are fixed files, so what a pass measures in one of
+        # their frames is a fact about those pixels. A visitor may start from a
+        # reading somebody else already paid for, and either way this run's
+        # reading is kept for whoever is next. Only our files: the key is a
+        # name we ship, and an upload can never collide with one.
+        clip = str(form.get(f"take_{index}_clip", "") or "")
+        ours = clip in {sample["file"] for sample in SAMPLE_CLIPS}
+
+        head_observations = (
+            await _kept_clip_reading(clip, "head") if ours and use_cache else None
         )
-        tail_observations = await _observe_or_none(
-            tail_bytes, f"take {index} tail", settings
+        if head_observations is None:
+            head_observations = await _observe_or_none(
+                head_bytes, f"take {index} head", settings
+            )
+            if ours:
+                await _keep_clip_reading(clip, "head", head_observations, settings.model)
+        else:
+            reused += 1
+
+        tail_observations = (
+            await _kept_clip_reading(clip, "tail") if ours and use_cache else None
         )
+        if tail_observations is None:
+            tail_observations = await _observe_or_none(
+                tail_bytes, f"take {index} tail", settings
+            )
+            if ours:
+                await _keep_clip_reading(clip, "tail", tail_observations, settings.model)
+        else:
+            reused += 1
 
         # Only if asked. Without a stored frame the agent has nothing to point
         # a visual adjudication at, and it says so in its own report; with one,
@@ -1271,6 +1388,7 @@ async def create_project(
         ],
         "rows_written": written,
         "frames_stored": store_frames,
+        "readings_reused": reused,
         "times_known": times_known,
         "position_known": latitude is not None,
         "latitude": latitude,
@@ -1605,3 +1723,49 @@ async def _sample_versions(bucket_name: str) -> dict[str, str]:
 @app.exception_handler(ConfigError)
 async def config_error_handler(_request, exc: ConfigError):
     raise HTTPException(status_code=500, detail=str(exc))
+
+async def _kept_clip_reading(clip: str, role: str) -> list[dict[str, Any]] | None:
+    """What a previous pass measured in this frame of one of our clips."""
+    from app.tools.candidates import _rows_from, _text
+
+    sql = (
+        "SELECT payload FROM cinemeridian.sample_clip_readings FINAL "
+        f"WHERE clip = {_text(clip)} AND role = {_text(role)} LIMIT 1"
+    )
+    try:
+        tool = await _ingest_tool()
+        result = str(await tool.run_async(args={"query": sql}, tool_context=None))
+        _, rows = _rows_from(result)
+        if not rows:
+            return None
+        kept = json.loads(str(rows[0][0]))
+    except Exception:  # noqa: BLE001 - a miss and a failure both mean read it live
+        logger.exception("could not read a kept clip reading")
+        return None
+
+    # An empty list is a real answer - the pass ran and saw nothing worth
+    # reporting - but it is not worth reusing, and re-reading may do better.
+    return kept if isinstance(kept, list) and kept else None
+
+
+async def _keep_clip_reading(
+    clip: str, role: str, observations: list[dict[str, Any]] | None, model: str
+) -> None:
+    """Keep this reading for the next visitor. Failing costs them time, no more."""
+    if not observations:
+        return
+
+    from app.tools.candidates import _text
+
+    sql = (
+        "INSERT INTO cinemeridian.sample_clip_readings "
+        "(clip, role, read_at, model, payload) VALUES ("
+        f"{_text(clip)}, {_text(role)}, now(), {_text(model)}, "
+        f"{_text(json.dumps(observations))})"
+    )
+    try:
+        tool = await _ingest_tool()
+        await tool.run_async(args={"query": sql}, tool_context=None)
+    except Exception:  # noqa: BLE001
+        logger.exception("could not keep a clip reading")
+

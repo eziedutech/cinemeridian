@@ -89,6 +89,15 @@ No login is needed for anything below.
 3. Bring **your own video** if you have two shots of the same place. Your files
    are never uploaded: the browser decodes them and sends two frames per clip,
    the first and the last, because those are the two moments a cut joins.
+   Picking our clips also offers a tick box, **start from what these clips
+   already measured**. The six sample clips are fixed files, so what a vision
+   pass read in their frames is a fact about those pixels, and ClickHouse keeps
+   it for whoever comes next; taking it up saves two vision calls per clip and
+   roughly three minutes. It is measurements only. The sun is recomputed for the
+   time and place you give, the candidate query runs again, and the agent
+   investigates from nothing, so the verdict is still this run's own. Untick it
+   to read every frame from scratch, and note that your own footage is never
+   kept or reused either way.
 4. Open **[/scene](https://cinemeridian-console-wswiws457a-uc.a.run.app/scene)**
    for the deep end: thirty synthetic takes across eight setups and five shooting
    days, with five faults planted in them and an answer key in the repository.
@@ -193,6 +202,7 @@ rules require and what GitHub reads for the licence badge.
 ```
 sql/
   001_schema.sql             the seven ClickHouse tables
+  002_sample_cache.sql       what the clips we ship have already measured
   010_queries.sql            the tested queries, with their reasoning
 scripts/
   generate_telemetry.py      simulated environment data (ephemeris + weather)

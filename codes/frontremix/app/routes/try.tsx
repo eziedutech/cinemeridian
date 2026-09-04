@@ -32,6 +32,17 @@ import { readMp4Metadata, type Mp4Metadata } from "~/lib/mp4meta";
  *  quota rather than a limit of the code: every take costs two vision calls at
  *  ingest, and this project has already met "Resource exhausted" at six calls
  *  in quick succession. */
+/** The clips this project ships, named the way the API names them. Kept
+ *  readings are keyed by these, and by nothing else. */
+const SAMPLE_FILES = [
+  "woman-1.mp4",
+  "woman-2.mp4",
+  "woman-3.mp4",
+  "woman-4.mp4",
+  "day-5.mp4",
+  "night-6.mp4",
+];
+
 const MIN_TAKES = 2;
 const MAX_TAKES = 6;
 
@@ -112,6 +123,7 @@ export default function TryYourClips() {
   const [lat, setLat] = useState("");
   const [lon, setLon] = useState("");
   const [storeFrames, setStoreFrames] = useState(true);
+  const [useCache, setUseCache] = useState(true);
 
   const [stage, setStage] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -153,6 +165,13 @@ export default function TryYourClips() {
 
   const findingGroups = groupFindings(comparisons, findings, project);
 
+  // Only our own clips can be started from a kept reading: the key is the file
+  // name we ship, so somebody's own footage can never match one, and the choice
+  // is not offered for it.
+  const allOurs =
+    ordered.length > 0 &&
+    ordered.every((take) => SAMPLE_FILES.includes(take.file?.name ?? ""));
+
   const skipped: string[] = [];
   if (!hasPlace) skipped.push("everything that needs the sun's position");
   if (!hasTimes) skipped.push("everything that needs the clock");
@@ -177,7 +196,7 @@ export default function TryYourClips() {
 
     try {
       setStage("Reading the light and checking each join is inside one scene");
-      const seen = await findSceneChanges(apiBase, ordered);
+      const seen = await findSceneChanges(apiBase, ordered, allOurs && useCache);
       setSceneChanges(seen.changes);
       setConditions(seen.conditions);
       setJoins(seen.joins);
@@ -190,6 +209,7 @@ export default function TryYourClips() {
         lon,
         storeFrames,
         seen.conditions,
+        allOurs && useCache,
       );
       setProject(created);
 
@@ -497,6 +517,35 @@ export default function TryYourClips() {
             </span>
           ) : null}
         </div>
+
+        {allOurs ? (
+          <label className="choice">
+            <input
+              type="checkbox"
+              checked={useCache}
+              onChange={(event) => setUseCache(event.target.checked)}
+            />
+            <span>
+              <b>
+                Start from what these clips already measured
+                <Info>
+                  These are our clips, and they are the same file for everybody,
+                  so what a vision pass measured in their frames is a fact about
+                  those pixels rather than about this run. Reusing it saves two
+                  calls per clip and about three minutes. What is never reused is
+                  the answer: the sun is recomputed for the time and place above,
+                  the database is asked again, and the agent investigates from
+                  nothing, so the verdict is this run's own. Untick it to read
+                  every frame again from scratch.
+                </Info>
+              </b>
+              <em>
+                Measurements only, and only for the six clips we ship. Your own
+                footage is never kept or reused.
+              </em>
+            </span>
+          </label>
+        ) : null}
 
         <label className="choice">
           <input
@@ -978,6 +1027,7 @@ function ClipPlayer({ file, onClose }: { file: File; onClose: () => void }) {
 async function findSceneChanges(
   base: string,
   takes: TakeState[],
+  useCache: boolean,
 ): Promise<{
   changes: SceneChange[];
   conditions: Array<Conditions | null>;
@@ -997,6 +1047,11 @@ async function findSceneChanges(
     body.append("columns", String(DEFAULT_GRID.columns));
     body.append("rows", String(DEFAULT_GRID.rows));
     body.append("reads", "1");
+    // Named so the server can keep this reading for the next visitor, and so it
+    // can offer one that is already kept. Empty for anybody's own footage.
+    body.append("outgoing_clip", takes[index].file?.name ?? "");
+    body.append("incoming_clip", takes[index + 1].file?.name ?? "");
+    body.append("use_cache", String(useCache));
 
     // A join that could not be checked is not a join that failed. Carrying on
     // is the cheaper mistake: refusing an analysis somebody asked for leaves
@@ -1036,9 +1091,11 @@ async function createProject(
   lon: string,
   storeFrames: boolean,
   conditions: Array<Conditions | null>,
+  useCache: boolean,
 ): Promise<Project> {
   const form = new FormData();
   form.append("store_frames", String(storeFrames));
+  form.append("use_cache", String(useCache));
   // Sent only when known. An empty field would arrive as a position of zero,
   // which is a real place in the Gulf of Guinea and a confident wrong answer.
   if (lat !== "" && lon !== "") {
@@ -1051,6 +1108,7 @@ async function createProject(
     form.append(`take_${n}_head`, take.headFrame!.blob, `t${n}_head.jpg`);
     form.append(`take_${n}_tail`, take.tailFrame!.blob, `t${n}_tail.jpg`);
     form.append(`take_${n}_duration`, String(take.duration));
+    form.append(`take_${n}_clip`, take.file?.name ?? "");
     if (take.when !== "") {
       form.append(`take_${n}_recorded_at`, new Date(take.when).toISOString());
     }

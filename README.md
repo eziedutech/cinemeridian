@@ -24,6 +24,7 @@ Built for **Agentic Cinema: The Blockbuster Hackathon**, ClickHouse track.
 - [Configuration](#configuration)
 - [What is real and what is simulated](#what-is-real-and-what-is-simulated)
 - [Results](#results)
+- [What it cannot say, and what comes next](#what-it-cannot-say-and-what-comes-next)
 - [Credits and licenses](#credits-and-licenses)
 - [How this was built](#how-this-was-built)
 - [License](#license)
@@ -605,6 +606,54 @@ system compares takes against takes, never against absolute truth, so a
 systematic bias cancels. The one place absolute values matter - a mis-slated
 take - is handled by normalising each take against the median of its own setup,
 because framing is identical within a setup and the bias travels with framing.
+
+## What it cannot say, and what comes next
+
+The name is a promise about method. A meridian is the sun's own clock, and what
+this tool can accuse a cut of is a violation of physics: a shadow that swung
+further than the sun did, a sequence that runs backwards against its own
+timestamps, a slate that disagrees with the light around it. Those can be
+computed, argued with, and shown to be wrong. That is the whole of what it
+files.
+
+Plenty of real continuity errors are not that. The most famous one in cinema is
+a croissant that becomes a pancake between two angles of the same breakfast.
+Nothing about the sun is violated there. The prop simply changed, and the only
+evidence is that the two frames disagree.
+
+This tool sees that and does not accuse it. The pair pass puts both frames under
+one grid and reports the cells that differ, so a swapped prop does come back
+marked, with a box drawn on the frame. It stops there. That difference lives on
+the page: it is not written to ClickHouse, the agent is never handed it, and no
+finding is filed from it. The join reads "1 marked on the grid" rather than
+"1 finding filed", which is the honest distinction between something worth
+looking at and something proved wrong.
+
+Three things would have to be true to close that gap, and each is real work
+rather than a setting.
+
+1. **The grid differences would have to become evidence.** Today they are a
+   picture for a person. Written into ClickHouse beside the observations, they
+   would become rows the agent can query, group across a whole cut, and reason
+   about: a prop that disagrees at one join is a slip, and the same prop
+   disagreeing at four is a reshoot.
+2. **There would have to be a kind for it.** The seven kinds the candidate
+   query knows are all about the sun and the clock. A prop that changes identity
+   between two frames of one scene is an eighth, and it needs its own rule for
+   when to file and its own language for what to recommend, because "reshoot the
+   pickup" is the wrong advice for a croissant.
+3. **More than two frames per take would have to be read.** The tool reads the
+   head and the tail, because those are the two moments a cut joins. An error
+   that appears and resolves inside a shot is never looked at. Reading more
+   costs vision calls linearly, which is exactly the cost the kept readings in
+   `sample_clip_readings` exist to make bearable.
+
+Two smaller things are known and not done. The PDF export renders the report
+stored in the database, so the note naming joins that could not be read appears
+on the page but not in the printed copy. And the thirty-take demo scene is
+synthetic by construction: it proves the reasoning at a scale real footage would
+have cost more than this project had, and it is labelled as such everywhere it
+appears.
 
 ## Credits and licenses
 

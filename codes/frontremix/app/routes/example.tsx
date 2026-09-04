@@ -321,7 +321,9 @@ function runFacts(recording: typeof example): ResultFact[] {
       light
         ? {
             label: `Take ${index + 1}, light`,
-            value: `${light.regime.replace(/_/g, " ")}, looks like ${light.time_of_day.replace(/_/g, " ")}`,
+            // Short enough to sit on one line beside its label: the panel holds one
+            // of these per take, and six wrapped values read as a mess.
+            value: `${light.regime.replace(/_/g, " ")}, ${light.time_of_day.replace(/_/g, " ")}`,
             info:
               light.regime === "artificial"
                 ? "Shadows spread out from a point here, which is a lamp rather than the sun, so nothing about the time of day can be read from them."

@@ -1,15 +1,30 @@
 -- CineMeridian - the queries the agent chooses between.
 --
--- Every one of these has been run against the loaded scene and returns what it
--- claims to. They are kept here rather than buried in prompts so the agent can
--- be given tested SQL, and so a reader can check the reasoning without running
--- anything.
+-- Every one of these has been run and returns what it claims to. They are kept
+-- here rather than buried in prompts so the agent can be given tested SQL, and
+-- so a reader can check the reasoning without running anything.
 --
--- The agent is not limited to these. It composes its own follow-ups, and the
--- interesting runs are the ones where it does. These are the starting points.
+-- There are two paths through this project and they use this file
+-- differently. Read that before reading the queries.
+--
+--   * Somebody's own clips, which is what /example and /try both are. The
+--     candidates are computed by ONE statement in
+--     codes/backpy/app/tools/candidates.py, reproduced at the end of this file
+--     as query F, and the agent is handed the rows rather than the SQL. It
+--     writes its own follow-ups from there. This is the path a visitor takes
+--     and the one the worked example records.
+--
+--   * The thirty-take demo scene at /scene, which has an edit list, several
+--     setups and two cut versions. Queries A to E below are its starting
+--     points, and the agent composes from them.
+--
+-- So A to E describe the deeper scene rather than the front door. Neither is a
+-- pretence: both run against the same seven tables, through the same MCP
+-- server, as the same restricted user.
 --
 -- Parameters are written as {name:Type} for the ClickHouse parameterised
--- syntax.
+-- syntax, except in F, which is built as a string with its three identifiers
+-- quoted at the boundary.
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -176,3 +191,291 @@ FROM cinemeridian.shot_render_config r
 INNER JOIN cinemeridian.takes t ON t.take_id = r.take_id
 WHERE t.scene_id = {scene_id:String}
 ORDER BY r.shot_id, r.render_version;
+
+
+-- ──────────────────────────────────────────────────────────────────────────────
+-- F. Every candidate in one statement - the query the front door runs
+--
+-- This is what /example and /try actually execute. Four kinds of candidate for
+-- every join in a cut, unioned into one shape of row, so the agent makes one
+-- trip through MCP rather than one per take. That is the argument of the whole
+-- project in a single statement: a self-join across the pairs is work a
+-- database does in milliseconds and an agent would do badly in thirty round
+-- trips.
+--
+-- Reproduced from codes/backpy/app/tools/candidates.py with example
+-- identifiers in place. A coverage floor of 1% is applied rather than a
+-- confidence floor: confidence came back at 0.90 for a measurement that was
+-- sixty-eight degrees wrong, and coverage did not.
+
+WITH
+cuts AS (
+    SELECT
+        ed.cut_position AS pos,
+        ed.take_id      AS take_id,
+        t.setup_id      AS setup_id,
+        t.started_at    AS started_at,
+        t.ended_at      AS ended_at
+    FROM cinemeridian.edit_decisions AS ed
+    INNER JOIN cinemeridian.takes AS t ON ed.take_id = t.take_id
+    WHERE ed.edit_version = 'v_example' AND t.scene_id = 'sc_example'
+),
+joins AS (
+    SELECT
+        a.pos        AS pos_a,
+        a.take_id    AS take_a,
+        a.ended_at   AS moment_a,
+        b.pos        AS pos_b,
+        b.take_id    AS take_b,
+        b.started_at AS moment_b
+    FROM cuts AS a
+    INNER JOIN cuts AS b ON b.pos = a.pos + 1
+),
+obs AS (
+    SELECT
+        fo.take_id            AS take_id,
+        fo.story_beat         AS story_beat,
+        fo.entity             AS entity,
+        fo.attribute          AS attribute,
+        fo.numeric_value      AS numeric_value,
+        fo.value              AS value,
+        fo.frame_coverage_pct AS coverage,
+        fo.in_focus           AS in_focus,
+        fo.monotonic_dir      AS monotonic_dir,
+        fo.frame_ts           AS frame_ts,
+        fo.frame_uri          AS frame_uri
+    FROM cinemeridian.frame_observations AS fo
+    WHERE fo.scene_id = 'sc_example'
+)
+
+-- 1. How far the sun moved across each join. No vision at all: capture times
+--    against the computed ephemeris rank the risky joins on their own.
+SELECT
+    'sun_moved'                                        AS kind,
+    j.take_a                                           AS take_a,
+    j.take_b                                           AS take_b,
+    'sun'                                              AS entity,
+    'geometry'                                         AS attribute,
+    toString(round(e1.sun_azimuth_deg, 1))             AS value_a,
+    toString(round(e2.sun_azimuth_deg, 1))             AS value_b,
+    toString(round(dateDiff('minute', j.moment_a, j.moment_b), 1)) AS gap,
+    concat(
+        'elevation ', toString(round(e1.sun_elevation_deg, 1)),
+        ' to ', toString(round(e2.sun_elevation_deg, 1)),
+        ', shadow ', toString(round(e1.shadow_len_ratio, 2)),
+        'x to ', toString(round(e2.shadow_len_ratio, 2)), 'x'
+    )                                                  AS detail,
+    0.0                                                AS coverage,
+    1                                                  AS in_focus,
+    ''                                                 AS frame_uri
+FROM joins AS j
+INNER JOIN cinemeridian.ephemeris AS e1
+    ON e1.production_id = 'try_example' AND e1.ts = toStartOfMinute(j.moment_a)
+INNER JOIN cinemeridian.ephemeris AS e2
+    ON e2.production_id = 'try_example' AND e2.ts = toStartOfMinute(j.moment_b)
+
+UNION ALL
+
+-- 2. Anything measured on both sides of a join that changed. The comparison is
+--    the tail of the outgoing take against the head of the incoming one,
+--    because those are the two frames the audience sees as one moment.
+SELECT
+    'drift'                       AS kind,
+    j.take_a                      AS take_a,
+    j.take_b                      AS take_b,
+    oa.entity                     AS entity,
+    oa.attribute                  AS attribute,
+    coalesce(toString(oa.numeric_value), oa.value) AS value_a,
+    coalesce(toString(ob.numeric_value), ob.value) AS value_b,
+    toString(round(dateDiff('minute', j.moment_a, j.moment_b), 1)) AS gap,
+    concat('coverage ', toString(round(oa.coverage, 1)), '% and ',
+           toString(round(ob.coverage, 1)), '%')  AS detail,
+    least(oa.coverage, ob.coverage)               AS coverage,
+    least(oa.in_focus, ob.in_focus)               AS in_focus,
+    oa.frame_uri                                  AS frame_uri
+FROM joins AS j
+INNER JOIN obs AS oa ON oa.take_id = j.take_a AND oa.story_beat = 2
+INNER JOIN obs AS ob
+    ON ob.take_id = j.take_b
+   AND ob.story_beat = 1
+   AND ob.entity = oa.entity
+   AND ob.attribute = oa.attribute
+WHERE
+    oa.numeric_value IS NOT NULL
+    AND ob.numeric_value IS NOT NULL
+    AND abs(ob.numeric_value - oa.numeric_value) > 0.001
+    AND least(oa.coverage, ob.coverage) >= 1.0
+
+UNION ALL
+
+-- 3. Things that only accumulate, running backwards. Footprints do not unwalk
+--    themselves between two shots, so a count that falls is either a
+--    continuity error or a mis-ordered edit.
+SELECT
+    'runs_backwards'              AS kind,
+    j.take_a                      AS take_a,
+    j.take_b                      AS take_b,
+    oa.entity                     AS entity,
+    oa.attribute                  AS attribute,
+    toString(oa.numeric_value)    AS value_a,
+    toString(ob.numeric_value)    AS value_b,
+    toString(round(dateDiff('minute', j.moment_a, j.moment_b), 1)) AS gap,
+    concat('declared ', toString(oa.monotonic_dir))                AS detail,
+    least(oa.coverage, ob.coverage)                                AS coverage,
+    least(oa.in_focus, ob.in_focus)                                AS in_focus,
+    oa.frame_uri                                                   AS frame_uri
+FROM joins AS j
+INNER JOIN obs AS oa ON oa.take_id = j.take_a AND oa.story_beat = 2
+INNER JOIN obs AS ob
+    ON ob.take_id = j.take_b
+   AND ob.story_beat = 1
+   AND ob.entity = oa.entity
+   AND ob.attribute = oa.attribute
+WHERE
+    oa.numeric_value IS NOT NULL
+    AND ob.numeric_value IS NOT NULL
+    AND (
+        (toString(oa.monotonic_dir) = 'increasing' AND ob.numeric_value < oa.numeric_value)
+     OR (toString(oa.monotonic_dir) = 'decreasing' AND ob.numeric_value > oa.numeric_value)
+    )
+
+UNION ALL
+
+-- 4. What the frames show against what the slate says. Any shadow
+--    measurement will do, not only a length: the sharpest case is a shadow
+--    measured at all at a moment the sun was below the horizon, and no amount
+--    of tolerance explains that. It means the timestamp is wrong rather than
+--    the shot, and it is exactly what a file stamped with its export time
+--    rather than its filming time looks like.
+SELECT
+    'slate_vs_sun'                       AS kind,
+    o.take_id                            AS take_a,
+    ''                                   AS take_b,
+    o.entity                             AS entity,
+    o.attribute                          AS attribute,
+    toString(o.numeric_value)            AS value_a,
+    -- Only a length has a computed counterpart. A direction or a hardness has
+    -- none, and printing the ephemeris shadow length beside them would be
+    -- comparing a bearing to a ratio, which is worse than leaving it empty.
+    if(toString(o.attribute) = 'length_ratio',
+       toString(round(e.shadow_len_ratio, 2)), '')  AS value_b,
+    ''                                              AS gap,
+    concat('at ', formatDateTime(o.frame_ts, '%Y-%m-%d %H:%i:%S'),
+           ' the sun was ', toString(round(e.sun_elevation_deg, 1)), ' degrees up',
+           if(e.sun_elevation_deg <= 0,
+              ', BELOW THE HORIZON, so nothing here could have cast a shadow',
+              ''))                                  AS detail,
+    o.coverage                           AS coverage,
+    o.in_focus                           AS in_focus,
+    o.frame_uri                          AS frame_uri
+FROM obs AS o
+INNER JOIN cinemeridian.ephemeris AS e
+    ON e.production_id = 'try_example' AND e.ts = toStartOfMinute(o.frame_ts)
+WHERE
+    o.entity = 'primary_shadow'
+    AND o.numeric_value IS NOT NULL
+
+UNION ALL
+
+-- 5. How far the shadow swung against how far the sun did. This is the check
+--    that survives when a reading came back without a length: a shadow that
+--    turned five degrees while the sun moved one has either had the camera
+--    moved under it, which is ordinary, or is not at the time it claims, which
+--    is not. Both are worth a look, and the arithmetic needs no vision beyond
+--    the two directions already measured.
+SELECT
+    'direction_vs_sun'            AS kind,
+    j.take_a                      AS take_a,
+    j.take_b                      AS take_b,
+    'primary_shadow'              AS entity,
+    'swing_vs_sun'                AS attribute,
+    toString(round(abs(ob.numeric_value - oa.numeric_value), 1))     AS value_a,
+    toString(round(abs(e2.sun_azimuth_deg - e1.sun_azimuth_deg), 1)) AS value_b,
+    toString(round(dateDiff('minute', j.moment_a, j.moment_b), 1))   AS gap,
+    concat('shadow turned ',
+           toString(round(abs(ob.numeric_value - oa.numeric_value), 1)),
+           ' degrees while the sun turned ',
+           toString(round(abs(e2.sun_azimuth_deg - e1.sun_azimuth_deg), 1)),
+           '; a camera move explains this, a wrong time also would')  AS detail,
+    least(oa.coverage, ob.coverage)  AS coverage,
+    least(oa.in_focus, ob.in_focus)  AS in_focus,
+    oa.frame_uri                     AS frame_uri
+FROM joins AS j
+INNER JOIN obs AS oa
+    ON oa.take_id = j.take_a AND oa.story_beat = 2
+   AND oa.entity = 'primary_shadow' AND oa.attribute = 'direction_deg'
+INNER JOIN obs AS ob
+    ON ob.take_id = j.take_b AND ob.story_beat = 1
+   AND ob.entity = 'primary_shadow' AND ob.attribute = 'direction_deg'
+INNER JOIN cinemeridian.ephemeris AS e1
+    ON e1.production_id = 'try_example' AND e1.ts = toStartOfMinute(j.moment_a)
+INNER JOIN cinemeridian.ephemeris AS e2
+    ON e2.production_id = 'try_example' AND e2.ts = toStartOfMinute(j.moment_b)
+WHERE
+    oa.numeric_value IS NOT NULL
+    AND ob.numeric_value IS NOT NULL
+
+UNION ALL
+
+-- 6. The light itself changing across a join. A room lit by a beam through a
+--    window on one side of a cut and by lamps on the other is not a subtle
+--    thing an audience might miss; it is two different times of day presented
+--    as one moment. This is also the check that decides whether the sun can be
+--    used as a clock at all, so its answer governs the four above it.
+SELECT
+    'conditions_differ'           AS kind,
+    j.take_a                      AS take_a,
+    j.take_b                      AS take_b,
+    oa.entity                     AS entity,
+    oa.attribute                  AS attribute,
+    oa.value                      AS value_a,
+    ob.value                      AS value_b,
+    toString(round(dateDiff('minute', j.moment_a, j.moment_b), 1)) AS gap,
+    concat('read from the frames themselves, before any file was consulted')  AS detail,
+    100.0                         AS coverage,
+    1                             AS in_focus,
+    ''                            AS frame_uri
+FROM joins AS j
+INNER JOIN obs AS oa ON oa.take_id = j.take_a AND oa.story_beat = 2
+INNER JOIN obs AS ob
+    ON ob.take_id = j.take_b
+   AND ob.story_beat = 1
+   AND ob.entity = oa.entity
+   AND ob.attribute = oa.attribute
+WHERE
+    oa.entity IN ('lighting', 'opening', 'lamps')
+    AND oa.value != ob.value
+
+UNION ALL
+
+-- 7. Something measured on one side of a join and not the other. Weaker than
+--    the rest and labelled so: with one reading per frame at ingest, a missing
+--    row usually means the model did not mention it rather than that the thing
+--    was gone. Worth surfacing anyway, because the one time it is real it is a
+--    prop that vanished across a cut, and nothing else here would catch that.
+SELECT
+    'one_side_only'               AS kind,
+    j.take_a                      AS take_a,
+    j.take_b                      AS take_b,
+    oa.entity                     AS entity,
+    oa.attribute                  AS attribute,
+    coalesce(toString(oa.numeric_value), oa.value)  AS value_a,
+    'not measured'                                  AS value_b,
+    toString(round(dateDiff('minute', j.moment_a, j.moment_b), 1)) AS gap,
+    'weak: one reading per frame, so this is as likely a missed reading as a missing thing' AS detail,
+    oa.coverage                   AS coverage,
+    oa.in_focus                   AS in_focus,
+    oa.frame_uri                  AS frame_uri
+FROM joins AS j
+INNER JOIN obs AS oa ON oa.take_id = j.take_a AND oa.story_beat = 2
+LEFT JOIN obs AS ob
+    ON ob.take_id = j.take_b
+   AND ob.story_beat = 1
+   AND ob.entity = oa.entity
+   AND ob.attribute = oa.attribute
+WHERE
+    ob.take_id = ''
+    AND oa.entity NOT IN ('lighting', 'opening', 'lamps')
+    AND oa.coverage >= 1.0
+
+ORDER BY kind, take_a, entity, attribute

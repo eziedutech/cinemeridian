@@ -187,7 +187,15 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 
 /* The (i) hint */
 
-.info { position: relative; display: inline-flex; color: var(--ink-faint); cursor: help; }
+/* A margin rather than a gap on the parent: the icon follows a heading, a
+   label or a sentence, and each of those lays its children out differently. */
+.info {
+  position: relative;
+  display: inline-flex;
+  margin-left: 6px;
+  color: var(--ink-faint);
+  cursor: help;
+}
 .info:hover, .info:focus-visible { color: var(--sand); outline: none; }
 
 .info .tip {
@@ -195,6 +203,14 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
   top: calc(100% + 10px);
   left: -10px;
   width: 340px;
+  max-width: min(340px, calc(100vw - 32px));
+  /* Said outright rather than inherited: a label that holds its line, like the
+     ones in the fact rows, would otherwise force its own tooltip into a single
+     line that runs out of the panel and off the page. */
+  white-space: normal;
+  text-transform: none;
+  letter-spacing: normal;
+  text-align: left;
   background: var(--raised);
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -801,11 +817,17 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 .ends figcaption b { color: var(--sand); margin-right: 7px; }
 .ends figcaption span { display: block; color: var(--ink-faint); font-size: 12px; margin-top: 2px; }
 
+/* A spec sheet, not a form.
+ *
+ * These are short facts read at a glance, so each one is a single line with
+ * the label on the left and the value on the right, separated by a hairline.
+ * Stacked label-over-value in a wide grid was twice the height for the same
+ * words and left a hole under every panel that had only a few of them. */
 .facts {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
-  gap: 14px 26px;
-  margin: 24px 0 0;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 0 32px;
+  margin: 18px 0 0;
 }
 
 /* The evidence modal reads as prose rather than as a spec sheet, so its rows
@@ -838,9 +860,48 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 
 .ribbon-inline svg { display: block; }
 
-.fact dt { font-size: 11.5px; color: var(--ink-faint); margin-bottom: 3px; }
-.fact dd { margin: 0; font-size: 14px; }
+.fact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+/* The first row of each column starts the list rather than continuing one. */
+.fact:first-child,
+.fact:nth-child(2) { border-top: 0; }
+
+.fact dt {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0;
+  white-space: nowrap;
+}
+
+.fact dd {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink);
+  text-align: right;
+}
+
 .fact dd.warn { color: var(--amber); }
+
+/* One column, and the labels stop shouting, where the values are sentences. */
+.evidence-facts .fact,
+.facts.stacked .fact {
+  display: block;
+  border-top: 1px solid var(--line-soft);
+}
+
+.evidence-facts .fact dt,
+.facts.stacked .fact dt { text-transform: none; letter-spacing: 0; font-size: 11.5px; margin-bottom: 3px; }
+.evidence-facts .fact dd,
+.facts.stacked .fact dd { text-align: left; font-size: 14px; }
 
 .sheet-note {
   margin: 20px 0 0;
@@ -1512,7 +1573,7 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 }
 
 .setup-row { margin-bottom: 24px; }
-.setup-row > .panel { margin-top: 0; margin-bottom: 0; height: 100%; }
+.setup-row > .panel { margin-top: 0; margin-bottom: 0; }
 
 .act { display: flex; flex-direction: column; gap: 14px; }
 .act-body { min-width: 0; }
@@ -1688,7 +1749,7 @@ button.ghost[aria-pressed="true"] { color: var(--ground); background: var(--sand
 }
 
 .result-pair { margin-bottom: 24px; }
-.result-pair > .panel { margin-top: 0; margin-bottom: 0; height: 100%; }
+.result-pair > .panel { margin-top: 0; margin-bottom: 0; }
 
 /* The agent's report, as prose rather than a log line */
 

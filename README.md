@@ -74,17 +74,28 @@ or mark its own findings reviewed. Every finding lands in a queue for a human.
 
 No login is needed for anything below.
 
-1. Open the **[live console](https://cinemeridian-console-wswiws457a-uc.a.run.app)**.
-   It lists what the agent found in cut v14 of the demo scene. Click a finding to
-   see the two frames it is about, side by side.
-2. Press **Analyse v14** and watch the timeline on the right. That panel is the
-   honest half of the demo: the queries the agent wrote, the candidates it
-   dismissed, and the one adjudication it chose to spend. An investigation takes
-   around three minutes.
-3. Switch to **cut v13** and compare. The footage is identical in both; only the
-   order changed. Most findings disappear, which is the argument for recomputing
-   on every edit version rather than once at ingest.
-4. Check
+1. Open the **[live site](https://cinemeridian-console-wswiws457a-uc.a.run.app)**
+   and press **Show a worked example**. That page is a real run of the tool,
+   recorded: six sample clips, five joins, and the four things a join can turn
+   out to be - nothing found, something the grid marked that the agent would not
+   file, two findings filed, and a scene change where continuity rules do not
+   apply. Every panel on it is rendered by the same components as the page you
+   would use yourself.
+2. Press **Analyse an example video**, pick two clips, and run it for real. The
+   first two clips are the control: they should come back with nothing at all,
+   which is the hardest answer for a checker to get right. A run takes three to
+   seven minutes depending on how many clips you give it, and the overlay shows
+   what the agent is doing while it works.
+3. Bring **your own video** if you have two shots of the same place. Your files
+   are never uploaded: the browser decodes them and sends two frames per clip,
+   the first and the last, because those are the two moments a cut joins.
+4. Open **[/scene](https://cinemeridian-console-wswiws457a-uc.a.run.app/scene)**
+   for the deep end: thirty synthetic takes across eight setups and five shooting
+   days, with five faults planted in them and an answer key in the repository.
+   That page is where the scale lives - a hundred thousand rows of computed
+   ephemeris, a shooting week of telemetry, and two edit versions of the same
+   footage to compare.
+5. Check
    **[`/api/health/mcp`](https://cinemeridian-api-wswiws457a-uc.a.run.app/api/health/mcp)**.
    It starts the `mcp-clickhouse` server inside the deployed container and
    reports whether the agent can actually reach ClickHouse through it.
@@ -129,13 +140,13 @@ user, which never has a model attached to it.
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  frontremix - Remix console (Cloud Run)                      │
-│  findings map · evidence pair · agent timeline over SSE      │
+│  a worked example · your own clips · the scene behind it     │
 └───────────────────────────┬──────────────────────────────────┘
                             │ REST + SSE
 ┌───────────────────────────▼──────────────────────────────────┐
 │  backpy - FastAPI + Google ADK (Cloud Run)                   │
 │                                                              │
-│   cinemeridian_continuity_agent  ·  Gemini 2.5 Flash         │
+│   cinemeridian_continuity_agent  ·  Gemini 3.7 Flash         │
 │     MCPToolset ─────────────────────────────► mcp-clickhouse │
 │     observe_frame / adjudicate_cut ──────────► Vertex AI     │
 │     compute_light_rig / find_pickup_windows ─► ephemeris.py  │
@@ -145,7 +156,7 @@ user, which never has a model attached to it.
 └──────────┬────────────────────────────────┬──────────────────┘
            │ MCP (stdio)                    │ Vertex AI
 ┌──────────▼─────────────┐   ┌──────────────▼──────────────────┐
-│  ClickHouse Cloud      │   │  Gemini 2.5 Flash               │
+│  ClickHouse Cloud      │   │  Gemini 3.7 Flash               │
 │  7 tables              │   │  perception + adjudication      │
 └────────────────────────┘   └─────────────────────────────────┘
                              ┌─────────────────────────────────┐
@@ -160,12 +171,19 @@ is the only one that has to be quick.
 
 ![How a cut gets checked](assets/diagrams/pipeline.svg)
 
-Seven ClickHouse tables ([`sql/001_schema.sql`](sql/001_schema.sql)). The
-`ORDER BY` keys are the design, not decoration: the self-join of observations of
-the same story beat across different takes and the range scan over precomputed
-ephemeris each read a contiguous range. The queries the agent starts from, with
-the reasoning behind each, are in
-[`sql/010_queries.sql`](sql/010_queries.sql).
+Seven ClickHouse tables ([`sql/001_schema.sql`](sql/001_schema.sql)), written
+by both paths: a visitor's clips become takes and observations in the same
+tables the demo scene lives in, under their own production. The `ORDER BY` keys
+are the design, not decoration: the self-join of observations of the same story
+beat across different takes and the range scan over precomputed ephemeris each
+read a contiguous range.
+
+The queries are in [`sql/010_queries.sql`](sql/010_queries.sql), and that file
+says which path uses which. **F** is the one the front door runs: every
+candidate for every join in a cut, four kinds of them, in a single statement, so
+the agent makes one trip through MCP instead of one per take. **A to E** are the
+starting points for the thirty-take scene, which has an edit list and two cut
+versions to compare.
 
 **Repository layout.** `git init` runs at the root of the working folder, so the
 repository root is the project root. Application code sits under `codes/` rather
@@ -197,7 +215,14 @@ codes/
       settings.py            configuration from the environment
       tools/                 vision, prescribe, audit, agent_tools
     tests/
-  frontremix/                Remix continuity console
+  frontremix/                Remix front end
+    app/
+      routes/_index.tsx      the poster: what this is, and three ways in
+      routes/example.tsx     the worked example, rendered from example.json
+      routes/try.tsx         your own clips, decoded in the browser
+      routes/scene.tsx       the thirty-take scene and its edit versions
+      routes/report.tsx      the printable report, for either path
+      example.json           one recorded run, lifted out of /try with ?freeze=1
 assets/
   plates/                    the eight base plates, and their hand-measured anchors
   frames/sc14/su01/t03/      one master take, all eight frames, head to tail
@@ -340,6 +365,26 @@ contradiction the agent never sees.
   the demo presents them as one.
 
 ## Results
+
+### The worked example, six clips
+
+The recording behind [`/example`](https://cinemeridian-console-wswiws457a-uc.a.run.app/example)
+is one real run, kept as it came, and it is the front door because it shows all
+four outcomes in one cut:
+
+| Join | What came back |
+|---|---|
+| Take 1 → 2 | nothing found. The same take continued; the control that should be silent |
+| Take 2 → 3 | one cell marked on the grid, which the agent read and would not file |
+| Take 3 → 4 | one finding filed: the shadow flips 124° while the sun moves 1.1° |
+| Take 4 → 5 | a scene change. Beach to room, so continuity rules do not apply |
+| Take 5 → 6 | one finding filed: sunlit room cut to the same room after dark |
+
+Six takes, five joins, three findings, seven minutes forty-one seconds, on
+`gemini-3.7-flash`. The clips carry their own capture times, and a position was
+given, so the sun checks and the clock checks both ran.
+
+### The thirty-take scene
 
 The continuity errors in the demo scene are planted deliberately by
 [`generate_production.py`](scripts/generate_production.py), so there is an answer

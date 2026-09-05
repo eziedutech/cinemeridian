@@ -749,6 +749,13 @@ appears.
   unchanged): Gemini 3.7 Flash for perception,
   adjudication and the agent itself, Gemini 3 Pro Image for the base plates.
   This project uses no AI SDK from any other provider.
+- **Gemini Veo** and **Gemini Omni** for the six sample clips. They are
+  generated footage of a coastal location, made for this project and owned by
+  it, which is what makes them safe to ship and to reuse readings from.
+- An **AI coding assistant** was used as a pair programmer for implementation
+  and refactoring. Every architectural choice, every number reported here, and
+  every claim on the pages was specified, reviewed and verified against real
+  runs by the author.
 - **[mcp-clickhouse](https://github.com/ClickHouse/mcp-clickhouse)** - ClickHouse,
   Apache 2.0. Run as a stdio subprocess; not vendored.
 - **ClickHouse Cloud** - the analytical database.
